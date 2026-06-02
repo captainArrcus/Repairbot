@@ -1,0 +1,51 @@
+# Golden Test Cases for Phase 0 Intelligence Spike (Roadmap Feature 0.0)
+# These are representative, realistic diagnostic scenarios.
+
+cases:
+  - id: sin_001
+    controller: "SINUMERIK 840D sl"
+    machine_type: "CNC Lathe"
+    symptom_text: "The machine stops with an alarm when the X-axis moves fast. It makes a rattling noise. Error AL 309."
+    error_code: "AL 309"
+    ground_truth_diagnosis: "ball_screw_bearing_worn"
+    ground_truth_labels: ["ball_screw", "bearing", "x_axis"]
+    preferred_manual_reference: "Diagnostics Manual Ch. 12.4"
+    expected_agent_questions:
+      - "Can you feel play when pushing the axis?"
+      - "Does this happen at all speeds or only rapid traverse?"
+
+  - id: sin_002
+    controller: "SINUMERIK 828D"
+    machine_type: "CNC Mill"
+    symptom_text: "Spindle overheats after 20 minutes of running. No NC alarms yet, but the motor is very hot to touch. Drive shows F07011."
+    error_code: "F07011"
+    ground_truth_diagnosis: "spindle_motor_fan_failure"
+    ground_truth_labels: ["spindle_motor", "cooling_fan", "temperature"]
+    preferred_manual_reference: "SINAMICS S120 Faults"
+    expected_agent_questions:
+      - "Is the motor cooling fan running?"
+      - "Are the fan filters clogged with dust/coolant?"
+
+  - id: heid_001
+    controller: "Heidenhain iTNC 530"
+    machine_type: "5-Axis Mill"
+    symptom_text: "Tool changer is stuck halfway through a tool change. It dropped the tool. Error 3000."
+    error_code: "ERROR 3000"
+    ground_truth_diagnosis: "low_pneumatic_pressure"
+    ground_truth_labels: ["tool_changer", "pneumatics"]
+    preferred_manual_reference: "OEM Machine Manual (ATC section)"
+    expected_agent_questions:
+      - "What is the reading on the main pneumatic pressure gauge?"
+      - "Is there a physical chip jammed in the tool gripper?"
+
+  - id: fanuc_001
+    controller: "Fanuc 0i-MD"
+    machine_type: "Vertical Machining Center"
+    symptom_text: "Got an SV 410 alarm on the Y axis right after powering on and trying to home the machine."
+    error_code: "SV 410"
+    ground_truth_diagnosis: "axis_mechanically_bound"
+    ground_truth_labels: ["y_axis", "servo", "excess_error"]
+    preferred_manual_reference: "Fanuc Maintenance Manual (Servo Alarms)"
+    expected_agent_questions:
+      - "Is the axis physically jammed against something?"
+      - "Can you rotate the ball screw by hand with power off?"

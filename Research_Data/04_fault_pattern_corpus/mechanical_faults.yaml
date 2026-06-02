@@ -1,0 +1,43 @@
+# Structured Mechanical Fault Patterns for CNC Machines
+# This is the "Common Sense" knowledge base the agent uses when docs are missing.
+
+fault_patterns:
+  - component: "Ball Screw / Linear Guide"
+    symptoms:
+      - "Rattling or grinding noise during axis movement"
+      - "Positional inaccuracy / backlash"
+      - "Following error alarms (e.g., SINUMERIK AL 309)"
+    root_causes:
+      - cause: "Ball screw bearing worn"
+        checks: ["Push/pull table manually to feel for axial play", "Check with dial indicator"]
+      - cause: "Lack of lubrication"
+        checks: ["Check way lube level", "Inspect lubrication lines for breaks/clogs"]
+      - cause: "Coupling loose"
+        checks: ["Inspect servo motor to ball screw coupling for loose set screws"]
+
+  - component: "Spindle"
+    symptoms:
+      - "High-pitched whining or screeching at high RPM"
+      - "Spindle housing excessively hot"
+      - "Poor surface finish on milled parts"
+      - "Spindle speed not reached alarms"
+    root_causes:
+      - cause: "Spindle bearings worn/contaminated"
+        checks: ["Measure spindle runout", "Listen to spindle coast-down (should be smooth)"]
+      - cause: "Tool clamping (Drawbar) weak"
+        checks: ["Measure drawbar pull force with pull stud dynamometer"]
+      - cause: "Coolant ingress into bearings"
+        checks: ["Inspect labyrinth seal area for coolant bypass"]
+
+  - component: "Tool Changer (ATC)"
+    symptoms:
+      - "Tool changer jams mid-cycle"
+      - "Timeout alarms (e.g., AL 600)"
+      - "Dropping tools"
+    root_causes:
+      - cause: "Low pneumatic pressure"
+        checks: ["Verify machine incoming air pressure is > 5-6 bar", "Check regulator"]
+      - cause: "Sensor failure (Tool In/Out)"
+        checks: ["Observe sensor LEDs during tool unclamp", "Check PLC inputs"]
+      - cause: "Mechanical chip buildup"
+        checks: ["Visual inspection of ATC arm and magazine pockets"]

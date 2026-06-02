@@ -1,0 +1,72 @@
+# Fanuc CNC Alarm Code Database (Seed)
+# Manuals are proprietary; codes vary by series (0i, 16i, 30i, etc.)
+# Online resources: tristarcnc.com, cnccookbook.com, cncfixtech.com
+
+controller_family: FANUC
+source_note: "Codes vary by controller series. Verify against your specific model."
+last_updated: "2026-05-26"
+
+alarm_categories:
+  PS: "Program/Software alarms — G-code errors"
+  SV: "Servo alarms — Motor, encoder, axis faults"
+  SP: "Spindle alarms — Spindle drive faults"
+  OT: "Overtravel alarms — Axis limit exceeded"
+  OH: "Overheat alarms — Temperature faults"
+  SYS: "System alarms — Hardware/memory/parameter"
+  EX: "External alarms — PLC/machine builder defined"
+
+alarms:
+  - code: "SV 401"
+    category: SV
+    message_en: "Servo alarm: V ready off (VRDY)"
+    probable_causes: ["Servo amplifier not ready", "Power supply fault", "Emergency stop circuit open"]
+    related_components: [servo_amplifier, power_supply, e_stop_circuit]
+
+  - code: "SV 404"
+    category: SV
+    message_en: "Servo alarm: VRDY off during operation"
+    probable_causes: ["Servo amp overload", "DC link voltage drop", "Loose power cable"]
+    related_components: [servo_amplifier, power_supply, power_cable]
+
+  - code: "SV 410"
+    category: SV
+    message_en: "Servo alarm: Excessive error (position deviation)"
+    probable_causes: ["Mechanical binding", "Ball screw play", "Encoder fault", "Lubrication failure"]
+    related_components: [ball_screw, encoder, servo_motor, linear_guide]
+
+  - code: "SV 430"
+    category: SV
+    message_en: "Servo alarm: Pulse coder A/B phase error"
+    probable_causes: ["Encoder cable damaged", "Encoder contaminated", "EMC interference"]
+    related_components: [encoder, encoder_cable]
+
+  - code: "SP 750"
+    category: SP
+    message_en: "Spindle alarm: Spindle motor overheat"
+    probable_causes: ["Fan failure", "Continuous overload", "Temperature sensor fault"]
+    related_components: [spindle_motor, motor_fan, temperature_sensor]
+
+  - code: "SP 756"
+    category: SP
+    message_en: "Spindle alarm: Speed deviation too large"
+    probable_causes: ["Belt broken", "Bearing seized", "Drive overloaded"]
+    related_components: [spindle_belt, spindle_bearing, spindle_drive]
+
+  - code: "PS 000"
+    category: PS
+    message_en: "Program error: Please turn off power"
+    probable_causes: ["Memory corruption", "Battery backup failure", "Parameter reset"]
+    related_components: [battery, ncu_memory]
+
+  - code: "OT 500"
+    category: OT
+    message_en: "Overtravel: +X axis"
+    probable_causes: ["Axis hit positive limit switch", "Limit switch wiring fault"]
+    related_components: [limit_switch, axis_drive]
+
+  - code: "EX 1000-1999"
+    category: EX
+    message_en: "External alarm (machine builder defined)"
+    note: "These alarms are defined by the OEM. Consult machine builder documentation."
+    probable_causes: ["Machine-specific — check OEM manual"]
+    related_components: [plc, machine_specific]
