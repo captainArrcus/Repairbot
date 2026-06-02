@@ -1,0 +1,6 @@
+Research_Data/
+.venv/
+.vscode/
+.env
+__pycache__/
+    
