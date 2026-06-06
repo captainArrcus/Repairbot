@@ -1,6 +1,6 @@
 Research_Data/
 .venv/
+venv/
 .vscode/
 .env
 __pycache__/
-    
