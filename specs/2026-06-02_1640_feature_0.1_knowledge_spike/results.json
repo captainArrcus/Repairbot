@@ -1,0 +1,35 @@
+{
+  "run_date": "2026-07-10T21:30:21",
+  "num_cases": 20,
+  "spikes": {
+    "spike_a_structured": {
+      "top1_accuracy": 0.6,
+      "top3_recall": 0.308,
+      "question_overlap": 0.125,
+      "avg_latency_ms": 2.9,
+      "total_llm_cost_usd": 0.0
+    },
+    "spike_b_llm_wiki": {
+      "top1_accuracy": 0.7,
+      "top3_recall": 0.242,
+      "question_overlap": 0.25,
+      "avg_latency_ms": 6712.6,
+      "total_llm_cost_usd": 0.028771
+    },
+    "spike_c_hybrid": {
+      "top1_accuracy": 0.75,
+      "top3_recall": 0.308,
+      "question_overlap": 0.15,
+      "avg_latency_ms": 1593.5,
+      "total_llm_cost_usd": 0.006568,
+      "path_split": {
+        "fast": 4,
+        "llm": 16
+      }
+    }
+  },
+  "winner": "spike_c_hybrid",
+  "recommendation": "spike_c_hybrid wins: top-1 75%, top-3 31%, $0.0066/run. LLM value-add over pure structured lookup: top-1 +15%, top-3 recall +0%. The LLM improves the top result but not top-3 recall \u2014 best used to re-rank/refine structured candidates, not replace them.",
+  "llm_model": "gemini/gemini-3.1-flash-lite",
+  "metric_note": "top1/top3 use token-set label overlap; low absolute top-3 recall is driven by granular/positional ground-truth labels (overcurrent, x_axis, plc_alarm, cooling_fan) absent from the alarm DB related_components. Top-1 accuracy is the more reliable signal on this label set."
+}

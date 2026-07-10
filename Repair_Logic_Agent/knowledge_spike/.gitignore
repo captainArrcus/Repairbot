@@ -1,0 +1,6 @@
+# Generated / working artifacts — reproducible from source + Research_Data.
+# compiled_wiki.md flattens the gitignored Research_Data corpus, so committing
+# it would leak the dataset into git. Keep it out.
+compiled_wiki.md
+.wiki_hash
+eval.log

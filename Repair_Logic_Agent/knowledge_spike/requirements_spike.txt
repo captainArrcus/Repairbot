@@ -1,0 +1,4 @@
+scikit-learn>=1.5
+litellm>=1.77
+PyYAML>=6.0
+python-dotenv>=1.1
