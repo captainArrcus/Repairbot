@@ -140,6 +140,21 @@ This is not "logging." This is **structured physical knowledge**. The system is 
 > [!NOTE]
 > The data bridge is an *engineering decision*, not a product promise. Users care about getting their machine running. The training traces are a consequence of doing that well.
 
+### The Learning Loop
+
+The Data Bridge records what happened. The agent backbone (an embedded [hermes-agent](https://github.com/nousresearch/hermes-agent)) goes one step further: it **learns** from what happened — creating reusable skills after complex diagnoses, building memory of each customer's machine park, and exporting training-ready trajectories.
+
+**Everything the technician on the ground teaches the agent flows to our cloud:**
+
+```
+Field session (tenant)
+  → trajectories  → training dataset for future repair models
+  → skills        → curation gate → shared fleet skill base → every tenant benefits
+  → memory        → stays tenant-scoped (better diagnosis for THAT customer)
+```
+
+One customer's solved fault pattern becomes — after curation — every customer's head start. Tenant data never crosses the boundary uncurated; the curation gate is a hard invariant (GDPR + competitive isolation).
+
 ---
 
 ## Explicit Non-Goals (Phase 1)
@@ -150,7 +165,8 @@ These are things we **will not build** in Phase 1, regardless of how tempting th
 |---|---|
 | OPC-UA / MQTT / PLC direct integration | Requires machine-specific adapters; zero-install smartphone is our advantage |
 | Knowledge graphs (Memgraph) | Premature optimization; flat vector/document store is sufficient |
-| Multi-agent orchestration | Single monolithic agent core with tools; refactor when complexity demands it |
+| Multi-agent orchestration | Single monolithic agent core with tools (hermes supports subagents — we don't use them); refactor when complexity demands it |
+| Messaging channels (WhatsApp/Telegram via hermes gateway) | Validated option (relay-connector contract exists), deferred to Phase 3+; the app's structured evidence capture (typed hypotheses, camera control) is the product |
 | AR overlays (RealWear, Vision Pro) | Hardware dependency; smartphone camera is universally available |
 | Predictive maintenance / sensor fusion | Different product; we solve *reactive* repair first |
 | Offline-first architecture | Modern factories have connectivity; validate online-first before engineering offline |
@@ -171,4 +187,4 @@ The API contract between them is the most critical specification. The frontend m
 
 ---
 
-*Stand: Mai 2026*
+*Stand: Juli 2026 — updated for hermes-agent backbone (Techstack v3)*

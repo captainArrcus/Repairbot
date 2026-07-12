@@ -1,6 +1,8 @@
-# Techstack — RepairRöpi (v2)
+# Techstack — RepairRöpi (v3)
 
 > **Governing principle:** Every technology choice must justify itself against the alternative of "plain Python function." If a framework doesn't save us meaningful complexity, we don't use it.
+
+> **v3 change:** The agent backbone moves from smolagents to an **embedded hermes-agent** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent), MIT). Decision drivers: built-in learning loop (skills, memory, curator) that turns field sessions into cloud assets, ready-made trajectory generation/compression tooling for the Data Bridge, and a tool-calling loop (not code-as-action) that eliminates the arbitrary-code-execution sandbox problem. Deployment is **central cloud, multi-tenant**; the mobile app stays the only channel in Phase 1.
 
 ---
 
@@ -17,18 +19,22 @@
 ┌─────────────────────▼───────────────────────────────────┐
 │                Repair_Logic_Agent                        │
 │                                                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐ │
-│  │  FastAPI     │  │  Agent Core  │  │  Knowledge     │ │
-│  │  API Layer   │──│  (see §Agent)│──│  Layer         │ │
-│  │  (SSE Stream)│  │  + Tools     │  │  (see §Docs)   │ │
-│  └─────────────┘  └──────────────┘  └────────────────┘ │
-│                          │                              │
-│  ┌─────────────┐  ┌──────▼──────┐  ┌────────────────┐  │
-│  │  LiteLLM    │  │  Session    │  │  Media Store    │  │
-│  │  (Model     │  │  Store      │  │  (S3-compat.)  │  │
-│  │   Router)   │  │  (Postgres) │  │                 │  │
-│  └─────────────┘  └─────────────┘  └────────────────┘  │
+│  ┌─────────────┐  ┌──────────────────┐  ┌────────────┐ │
+│  │  FastAPI     │  │  AgentService    │  │  Knowledge │ │
+│  │  API Layer   │──│  wraps embedded  │──│  Layer     │ │
+│  │  (SSE Stream)│  │  hermes AIAgent  │  │  (hybrid)  │ │
+│  └─────────────┘  └────────┬─────────┘  └────────────┘ │
+│                            │ 4 domain tools, allowlisted│
+│  ┌─────────────┐  ┌────────▼────────┐  ┌────────────┐  │
+│  │  LiteLLM    │  │  Session Store  │  │ Media Store│  │
+│  │  Proxy      │  │  (Postgres)     │  │ (S3-comp.) │  │
+│  └─────────────┘  └─────────────────┘  └────────────┘  │
 │                                                         │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  Learning Pipeline (per-tenant hermes state:     │   │
+│  │  trajectories · skills · memory → curation →     │   │
+│  │  fleet knowledge)                                │   │
+│  └──────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │  Langfuse (Observability & Eval)                 │   │
 │  └──────────────────────────────────────────────────┘   │
@@ -56,40 +62,59 @@
 | Serialization | **Pydantic v2** | Request/response validation, schema generation |
 | HTTP Client | **httpx** | Async-native, replaces `requests` to avoid sync blocking in event loop |
 
-### Agent Framework: smolagents — Acknowledged as a Bet
+### Agent Framework: hermes-agent (embedded) — Acknowledged as a Bet
 
 | Component | Choice | Version | Rationale |
 |---|---|---|---|
-| Agent Framework | **smolagents** | ≥1.24.0 | Code-as-action, native multimodal, native streaming |
-| Agent Type | **CodeAgent** | — | Writes Python to call tools |
-| Model Router | **LiteLLM** | pin major (e.g. ~1.77) | Model-agnostic switching. Pin major version — LiteLLM ships breaking changes. |
-| Step Control | **StepRunner** (custom) | — | Already built. Wraps smolagents streaming. |
+| Agent Backbone | **hermes-agent** (NousResearch) | **pinned git commit** — no stable API guarantee upstream | Learning loop + trajectory tooling + tool-calling loop |
+| Entry Point | **`run_agent.AIAgent`** (embedded as library) | — | Programmatic conversation loop; no CLI/gateway needed |
+| Model Access | **LiteLLM proxy** (OpenAI-compatible endpoint) | pin major (e.g. ~1.77) | `AIAgent` speaks the OpenAI protocol to any `base_url`; LiteLLM proxy does provider routing behind it |
+| Event Mapping | **`AgentService`** (ours) | — | Maps hermes stream (messages, tool calls) to our typed SSE events |
 
-#### Why smolagents over a 200-line plain Python agent loop?
+#### Why hermes-agent over smolagents / a plain loop?
 
 Honest answer:
 
-**What smolagents gives us that's hard to replicate in 200 lines:**
-- Native streaming with typed step events (ToolCall, ActionStep, FinalAnswerStep) — our SSE event types map directly to these
-- Multimodal memory (images persist across steps via `task_images` and `observation_images`)
-- Built-in sandboxed execution options (Docker, E2B, WebAssembly) — critical since CodeAgent executes LLM-generated Python
+**What hermes gives us that we'd otherwise build ourselves:**
+- **A learning loop** — the strategic reason. Skills are created autonomously after complex tasks and self-improve during use; the memory manager and curator build durable knowledge across sessions. What a technician on the ground teaches the agent becomes a cloud asset (see §Learning Pipeline).
+- **Trajectory generation and compression** (`batch_runner.py`, `trajectory_compressor.py`, datagen configs) — purpose-built tooling to turn tool-calling traces into training data. The Data Bridge gets a concrete fine-tuning pipeline instead of a bespoke export format.
+- **Tool-calling loop, not code-as-action.** The LLM never writes arbitrary Python. The entire CodeAgent-sandbox problem from v2 disappears; containment reduces to a tool allowlist plus network egress isolation (see §Guardrails).
+- Streaming, iteration budgets, context compression, multimodal message handling — built in and battle-tested across their CLI/gateway deployments.
+
+**What we deliberately do NOT use (Phase 1):**
+
+| Unused | Why |
+|---|---|
+| CLI / TUI | Our channel is the mobile app via FastAPI |
+| Gateway + messaging channels (Telegram, WhatsApp, …) | Deferred to Phase 3+ (validated option — relay-connector contract exists) |
+| Terminal execution tools (all 6 backends) | The repair agent has no business running shell commands |
+| The 40+ general-purpose tools, MCP extras, cron, subagents | Tool allowlist is exactly our 4 domain tools |
 
 **What's genuinely risky:**
-- Young library (<2 years), HuggingFace-governed — could stall or pivot
-- We're already extending it with StepRunner, which suggests friction
-- CodeAgent executing arbitrary Python in production requires explicit sandboxing
+- **Single-user design.** Hermes state (memory, skills, sessions) lives file-based under `HERMES_HOME` — built for one user per instance. Multi-tenant operation requires strict per-tenant isolation (see §Guardrails). Cross-tenant knowledge leakage is our #1 integration risk.
+- **Fast-moving repo, no semver.** We pin a commit and upgrade deliberately behind the golden test harness.
+- **Feature entanglement.** Some learning features may assume the CLI/gateway session store. The embed spike (Roadmap Feature 0.2) must verify skills/memory work when driven purely through `AIAgent`.
 
 **Our mitigation:**
-- **Sandbox decision (Phase 1): Docker Sandboxes for AI Agents.** We already use Docker Compose, and Docker now offers purpose-built Sandboxes for AI Agents (https://www.docker.com/products/docker-sandboxes/). This gives us robust isolation with resource limits without having to build a hardened container from scratch. `CodeAgent(executor_type="docker")` will be configured to target this.
-- **Abstraction boundary:** The FastAPI layer never imports smolagents directly. A thin `AgentService` interface wraps it. If smolagents dies, we replace the internals without touching the API layer.
-- **Escape hatch:** If we hit a wall, the replacement is `LiteLLM tool-calling + a Python loop` — not a framework migration. We keep this option open.
+- **Abstraction boundary:** The FastAPI layer never imports hermes directly. A thin `AgentService` interface wraps it. If hermes dies or pivots, we replace the internals without touching the API layer.
+- **Escape hatch:** unchanged from v2 — `LiteLLM tool-calling + a Python loop`. Embedding `AIAgent` as a library (not adopting the whole platform) keeps this exit cheap.
 
 > [!WARNING]
-> **Review trigger:** If we find ourselves monkey-patching smolagents internals or fighting its abstractions more than using them, we drop it. The governing principle applies ruthlessly here.
+> **Review trigger:** If we find ourselves monkey-patching hermes internals, fighting the single-user assumptions, or the learning loop doesn't function without the gateway — we drop to the escape hatch. The governing principle applies ruthlessly here.
+
+#### Guardrails — hermes runs inside a fence
+
+Hermes is a general-purpose agent framework with wide capabilities. We embed it with defense in depth:
+
+1. **Tool allowlist.** The agent is constructed with exactly the four domain tools below. Terminal execution, browser, image generation, MCP servers, subagent spawning — never registered. No code-execution path exists.
+2. **Network egress isolation.** We adopt the dual-network Docker pattern from hermes' own `docs/security/network-egress-isolation.md`: the agent container has no default route; an egress proxy allows an explicit host allowlist (LLM endpoints, S3, Langfuse). Prompt-injection exfiltration has nowhere to go.
+3. **Tenant isolation.** One `HERMES_HOME` per tenant — memory, skills, and session state never share a directory across customers. Postgres remains the source of truth; hermes file/SQLite state is a rebuildable cache tier. A cross-tenant leak test is part of the golden harness.
+4. **Physical-safety approval.** `guidance` events carry `safety_level`. High-safety steps (electrical work, lockout/tagout) require explicit technician confirmation in the app before follow-up steps stream — hermes' command-approval concept mapped to physical actions.
+5. **Output validation.** Every event is Pydantic-validated before streaming (unchanged from v2). Invalid agent output is sanitized and logged to Langfuse, never forwarded raw.
 
 #### Agent Architecture: Monolithic Core + Tools
 
-Single CodeAgent with tools — not a multi-agent society.
+Single embedded `AIAgent` with tools — not a multi-agent society. Hermes supports subagent spawning; we don't use it.
 
 **Tools (Phase 1):**
 
@@ -107,25 +132,42 @@ Single CodeAgent with tools — not a multi-agent society.
 
 The agent streams typed SSE events (`hypothesis`, `question`, `diagnosis`, etc.). This requires **structured output from the LLM at every step** — not free-form text parsing.
 
-Implementation: smolagents' CodeAgent naturally produces structured step objects. We map these to our SSE event types in the `AgentService` layer. When the agent calls a tool or produces an action, the step type is already typed.
+Implementation: hermes' `AIAgent` runs a tool-calling loop with typed tool calls and streamed assistant messages. Tool calls/results map directly to `tool_call`/`tool_result` events. For the diagnostic events (`hypothesis`, `question`, `diagnosis`, `guidance`), the agent's system prompt enforces a JSON output schema per event type; `AgentService` parses the stream, validates with Pydantic, and emits SSE.
 
-For the *content* of events (e.g., hypothesis with confidence score), the agent's system prompt enforces a JSON output schema per event type. We validate with Pydantic before streaming.
-
-**Model compatibility:** Gemini 2.5 Flash, Claude Sonnet 4, and GPT-4o all support structured output, but differently. LiteLLM abstracts invocation, not output schema behavior. Our `AgentService` layer normalizes this — it's the one place where model-specific output parsing lives.
+**Model compatibility:** structured-output behavior differs across providers. The LiteLLM proxy abstracts invocation, not output schema behavior. Our `AgentService` layer normalizes this — it's the one place where model-specific output parsing lives. This matters doubly now: the planned later switch to open models (see below) must not touch anything above `AgentService`.
 
 ### LLM Strategy
 
-| Scenario | Model | Rationale |
+| Stage | Model | Rationale |
 |---|---|---|
-| Primary reasoning + vision | **Gemini 2.5 Flash** | Cost-effective, fast, strong multimodal |
-| Complex/fallback diagnosis | **Claude Sonnet 4** or **GPT-4o** | Higher accuracy ceiling for edge cases |
-| Local/privacy-sensitive | **Deferred to Phase 2** | Only if SME demands on-premise |
+| **Now (build + validation):** primary reasoning + vision | **Gemini 2.5 Flash** | Cost-effective, fast, strong multimodal |
+| **Now:** complex/fallback diagnosis | **Claude Sonnet** | Higher accuracy ceiling for edge cases |
+| **Later MVP stage:** production models | **Open models — Mistral, GLM, DeepSeek** | Cost + EU data sovereignty. Switch is a LiteLLM proxy config change; the golden test harness gates the swap (no migration below the harness threshold). |
+| **Phase 4+ option:** fine-tuned repair model | Open base + our trajectories | The learning pipeline collects the training set from day one (hermes trajectory format) |
+
+---
+
+## Learning Pipeline — Field → Cloud
+
+> **This is what the hermes bet buys us.** The agent doesn't just log sessions — it learns from them, and we pipeline those learnings centrally. "Everything the user on the ground learns, the fleet learns."
+
+Three artifact streams flow from each tenant's agent state to the cloud:
+
+| Artifact | Produced by | Cloud destination | Use |
+|---|---|---|---|
+| **Trajectories** | Every diagnostic session (hermes trajectory format, compressed via `trajectory_compressor`) | S3 + Postgres refs, alongside Data Bridge traces | Fine-tuning dataset for the Phase 4+ repair model |
+| **Skills** | Hermes' autonomous skill creation after complex diagnoses (e.g., a reusable procedure for a recurring SINUMERIK fault) | **Curation queue** | Reviewed → generalized → promoted to the shared fleet skill base → redistributed to all tenants |
+| **Memory / insights** | Hermes memory manager (tenant's machine park, recurring faults, site specifics) | Stays **tenant-scoped**, backed up centrally | Better per-tenant diagnosis; never crosses tenants |
+
+**The curation gate is non-negotiable.** Nothing crosses a tenant boundary without passing curation: automated scrubbing of tenant-identifying data, then human review (Phase 1–3; automate later). This is both GDPR hygiene and competitive isolation between customers.
+
+**Relationship to the Data Bridge:** unchanged as the source-of-truth schema (Postgres, below). Hermes trajectories are an *additional, training-ready* export format of the same sessions — the Data Bridge records what happened; the trajectory pipeline packages it for model training.
 
 ---
 
 ## Knowledge Layer (Document Processing)
 
-> **Status: Phase 0 Spike required.** This is the single biggest determinant of diagnostic quality. We define the approach categories and the spike criteria — not a final architecture.
+> **Status: Phase 0 spike COMPLETE (2026-07-10).** Winner: **Hybrid (Spike C)** — exact error-code lookup fast-path + LLM reasoning over narrowed candidates. Top-1 accuracy 0.75 at $0.0066/run. See `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. The section below is kept as the decision record.
 
 ### The Problem
 
@@ -265,10 +307,14 @@ We'll evaluate this alongside classic RAG and VLM in the Phase 0 spike.
 
 | Component | Choice | Rationale |
 |---|---|---|
-| Session traces | **PostgreSQL** | Structured diagnostic traces (Data Bridge). JSONB for flexible evolution. |
+| Session traces | **PostgreSQL** | Structured diagnostic traces (Data Bridge). JSONB for flexible evolution. **Source of truth.** |
+| Hermes agent state | **Per-tenant `HERMES_HOME`** (files + SQLite) | Memory, skills, session cache. Rebuildable cache tier — backed up to S3, never authoritative. |
 | Media (images, audio) | **Cloud S3** (Hetzner Object Storage / Scaleway / AWS S3) | No self-hosted MinIO for Phase 1. Less to operate. |
+| Trajectories | **S3** (hermes trajectory format) + Postgres refs | Training-data stream of the Learning Pipeline |
 | Configuration | **YAML + env vars** | Simple, version-controllable |
-| DB access | **psycopg (direct SQL)** | Two tables don't justify SQLAlchemy. Plain SQL, no ORM. |
+| DB access | **psycopg (direct SQL)** | A handful of tables doesn't justify SQLAlchemy. Plain SQL, no ORM. |
+
+**Multi-tenancy:** `diagnostic_sessions` gains `tenant_id TEXT NOT NULL` (Phase 1 pilots: one tenant per customer). Every query is tenant-scoped; every S3 key is tenant-prefixed; every `HERMES_HOME` is tenant-dedicated.
 
 ### Session Trace Schema — Designed Backward from Training Data
 
@@ -294,6 +340,7 @@ Therefore, the schema has **first-class tables for hypotheses and outcomes**, no
 ```sql
 CREATE TABLE diagnostic_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id TEXT NOT NULL,
     machine_family TEXT NOT NULL,
     controller_family TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -534,10 +581,10 @@ select = ["E", "F", "I", "N", "W", "UP"]
 |---|---|---|
 | Containerization | **Docker + Docker Compose** | Local dev and staging |
 | CI/CD | **GitHub Actions** | Lint (ruff), eval suite, tests |
-| Deployment | **Cloud-first** | Single VPS or managed containers. No k8s for Phase 1. |
+| Deployment | **Cloud-first, multi-tenant** | Single VPS or managed containers. No k8s for Phase 1. |
 | Object Storage | **Cloud S3** (Hetzner/Scaleway/AWS) | No self-hosted MinIO. Less to operate. |
 | Secrets | **.env** (local), **CI secrets** (prod) | Document migration path for SME security audits. |
-| Agent sandbox | **Docker executor** | CodeAgent runs in isolated container |
+| Agent containment | **Egress-isolated container + tool allowlist** | No code-execution path (tool-calling only). Dual-network Docker pattern per hermes' egress-isolation doc; proxy allowlists LLM endpoints, S3, Langfuse. |
 | Rate limiting | **Noted for Phase 2** | Not urgent, but noted. |
 
 ---
@@ -555,8 +602,9 @@ pydantic >= 2.0
 httpx                      # async HTTP client (NOT requests)
 
 # Agent
-smolagents >= 1.24.0
-litellm ~= 1.77            # pin major version
+hermes-agent @ git+https://github.com/NousResearch/hermes-agent@<pinned-commit>
+                           # no semver upstream — upgrade deliberately, gated by golden harness
+litellm ~= 1.77            # proxy mode; pin major version
 
 # Document Processing
 docling                    # baseline PDF parser (spike will evaluate alternatives)
@@ -589,11 +637,11 @@ pytest
 
 Before this document becomes binding:
 
-- [ ] **Phase 0 Knowledge Spike** (1 week): RAG vs. VLM page feed vs. LLM wiki on 20 real SINUMERIK error codes
-- [ ] **smolagents stress test**: Build the diagnostic conversation loop end-to-end. If we fight the framework, drop it.
+- [x] **Phase 0 Knowledge Spike** — DONE 2026-07-10. Winner: hybrid (structured lookup + LLM over narrowed candidates). See `knowledge_spike/FINDINGS.md`.
+- [ ] **hermes embed spike**: Embed `run_agent.AIAgent` behind `AgentService`, drive the diagnostic loop end-to-end. Must verify: (a) streaming event mapping to our SSE types, (b) skills/memory function without CLI/gateway, (c) per-tenant `HERMES_HOME` isolation holds. If we fight the framework, drop to the escape hatch.
 - [ ] **Frontend developer identified**: Lock React Native vs. Flutter based on their expertise
 - [ ] **Langfuse deployed**: Self-hosted instance running before first agent integration test
 
 ---
 
-*Stand: Mai 2026 — v2 incorporating cofounder review*
+*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline*

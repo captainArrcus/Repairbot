@@ -1,5 +1,9 @@
 Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagnostic loop + Data Bridge) for SINUMERIK CNC machines in 12 weeks. This roadmap translates the cofounder's phases into concrete features, with file-level entry points, exact APIs, test commands and acceptance criteria so a coding agent or developer can start implementing immediately.
 
+> **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
+>
+> **Status:** Features 0.0 and 0.1 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`.
+
 Quick conventions used below
 
     Repo names (two-repo discipline):
@@ -55,25 +59,38 @@ Feature 0.1 — Knowledge-layer shootout scripts (owner: ML) — 40h
     Test:
         python knowledge_spike/evaluate_spikes.py --cases knowledge_spike/golden_cases.yaml --output knowledge_spike/results.json
 
-Feature 0.2 — CLI diagnostic agent (owner: ML + BE) — 24h
+Feature 0.2 — hermes embed spike + CLI diagnostic agent (owner: ML + BE) — 32h
 
-    Objective: fast interactive loop that proves diagnostics (run locally in terminal).
+    Objective: prove the hermes-agent bet end-to-end on a laptop BEFORE any API work. This is the
+    make-or-break spike from Techstack v3 — if we fight the framework here, we drop to the escape
+    hatch (LiteLLM tool-calling + plain loop) and the rest of the roadmap is unchanged.
     Repo path: repair_logic_agent/agents/
     Files to create:
-        cli_agent.py — wraps smolagents CodeAgent or a minimal LiteLLM loop
+        hermes_service.py — embeds run_agent.AIAgent (pinned commit), registers exactly one tool:
+            knowledge_retrieval(query) mapping to the hybrid winner from Feature 0.1
         run_cli.py — starts the agent in interactive mode
     Requirements:
-        The agent must be able to call one Tool: knowledge_retrieval(query) which maps to the chosen winner from Feature 0.1.
+        AIAgent configured against a LiteLLM proxy endpoint (OpenAI-compatible base_url),
+        Gemini 2.5 Flash primary / Claude fallback.
+        HERMES_HOME pointed at a dedicated directory (tenant-isolation pattern from day one).
+        NO hermes built-in tools registered (no terminal, no browser) — allowlist of one.
     Minimal function signatures:
-        class CLI_Agent:
+        class HermesAgentService:
             def start_session(self, session_id: str) -> None
             def handle_user_turn(self, text: str, media_paths: List[str]=None) -> List[StepEvent]
+    Spike must answer (write findings to specs/):
+        1. Does streaming expose enough structure to map to our typed SSE events (thinking,
+           hypothesis, question, tool_call, ...)?
+        2. Do skills/memory work when driven purely as a library (no CLI/gateway session store)?
+        3. Does per-HERMES_HOME isolation hold (two parallel sessions, zero state bleed)?
+        4. Can we export a trajectory of the session in hermes' trajectory format?
     Acceptance:
         Run: python run_cli.py
         Example interaction:
             User types: "Controller: SINUMERIK 840D, AL 309. Rattling when jogging X."
             Agent streams: thinking -> hypothesis (JSON) -> question ("Check axial play, tell me mm") -> etc.
         CLI logs must include typed step JSON per step.
+        GO/NO-GO decision on hermes documented in specs/ with the four answers above.
 
 PHASE 1 — API & "Wizard of Oz" UI (Weeks 3–4)
 Goal: get a smartphone in front of a machine and run the first field tests. Keep UI dirty — web prototype or Gradio.
@@ -93,7 +110,7 @@ Feature 1.1 — DB migration and seeded error-code table (owner: BE) — 12h
 
     Repo: repair_logic_agent/db/migrations/001_create_schema.sql (exact SQL provided)
     Add seed script: db/seeds/seed_error_codes.sql with 20 SINUMERIK codes and descriptions
-    Required exact SQL (create, insert) — use the schema from the architecture doc (diagnostic_sessions, diagnostic_turns, hypotheses, hypothesis_updates, session_outcomes) + diagnostic_turn_events table:
+    Required exact SQL (create, insert) — use the schema from the architecture doc (diagnostic_sessions incl. tenant_id, diagnostic_turns, hypotheses, hypothesis_updates, session_outcomes) + diagnostic_turn_events table:
         ADD table diagnostic_turn_events (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         turn_id UUID REFERENCES diagnostic_turns(id),
@@ -179,7 +196,7 @@ Feature 1.4 — Dirty web prototype (owner: FE) — 24h
     Test: open file via a simple static server: python -m http.server 8080 in repairropi_app/web_prototype and visit via phone on same LAN.
 
 PHASE 2 — Foundation & App (Weeks 5–8)
-Focus: productionize the core pipeline, add audio, structured traces, harden agent sandbox, and build native app.
+Focus: productionize the core pipeline, add audio, structured traces, guardrails (tool allowlist, egress isolation, tenant isolation), learning pipeline, and build native app.
 
 Feature 2.1 — Data Bridge completion & export (owner: BE) — 24h
 
@@ -242,20 +259,30 @@ Feature 2.4 — STT (Whisper) + audio preprocessing (owner: ML + BE) — 24h
     Test:
         tests/stt/test_transcribe_sample.py
 
-Feature 2.5 — AgentService: sandboxed CodeAgent in Docker + Pydantic step enforcement (owner: ML + BE) — 40h
+Feature 2.5 — AgentService: embedded hermes AIAgent + guardrails + Pydantic step enforcement (owner: ML + BE) — 40h
 
     Implement or refine app/services/agent_service.py with:
-        AgentService.start_session(session_id)
+        AgentService.start_session(session_id, tenant_id)
         AgentService.push_turn(session_id, turn_payload)
         AgentService.stream_events(session_id) → generator used by SSE endpoint
     Key points:
-        Use smolagents CodeAgent with executor_type="docker" configured to the sandbox image
-        StepRunner wrapper that converts smolagents steps to our Pydantic events
-        Validate each event against app/models/events.py; if invalid, agent must output a tool_call to correct or agent_service must synthesize a sanitized event and log Langfuse error
+        Embed run_agent.AIAgent (hermes-agent, pinned commit) — productionize the Feature 0.2 spike
+        Tool allowlist: exactly the 4 domain tools (vision, error-code lookup, knowledge retrieval,
+        web search). No terminal, no browser, no MCP, no subagents — never registered.
+        Per-tenant HERMES_HOME (memory/skills/session cache); Postgres stays source of truth
+        Event mapper converts the hermes stream to our Pydantic events
+        Validate each event against app/models/events.py; if invalid, agent_service synthesizes a
+        sanitized event and logs a Langfuse error — raw output is never forwarded
+        guidance events with safety_level=high require explicit user confirmation before the
+        agent streams follow-up steps (physical-safety approval gate)
     Acceptance:
-        Agent runs inside sandbox (verify via docker ps showing sandbox container), events are persisted to diagnostic_turn_events, SSE streams valid typed events.
+        Events are persisted to diagnostic_turn_events, SSE streams valid typed events,
+        cross-tenant test: two parallel sessions with different tenant_ids show zero state bleed.
     Safety:
-        Sandbox must have no outbound network except controlled tool channel (configured in container network settings).
+        Egress isolation per hermes docs/security/network-egress-isolation.md: agent container on
+        an internal Docker network with no default route; egress proxy allowlists only LLM
+        endpoints, S3 and Langfuse. Verified by a test that curls a non-allowlisted host from
+        inside the container and fails.
 
 Feature 2.6 — Mobile App V1 (RN or Flutter) — build the real app (owner: FE + PM) — 80h
 
@@ -275,6 +302,29 @@ Feature 2.6 — Mobile App V1 (RN or Flutter) — build the real app (owner: FE 
         services/api.js (presigned upload + turns + SSE helper)
     Acceptance:
         Installable APK runs on rugged Android and can run end-to-end test: capture photo, upload, create turn, receive SSE events, respond to question, receive diagnosis, upload verification photo, export session shows trace.
+
+Feature 2.7 — Learning Pipeline v1: field → cloud (owner: ML + BE) — 32h
+
+    Objective: implement the Techstack v3 Learning Pipeline — every session's learnings become
+    cloud assets, tenant-isolated, with a curation gate before anything is shared.
+    Files:
+        app/services/learning_pipeline.py
+        db/migrations/00X_learning_tables.sql (skill_curation_queue, trajectory_refs)
+    Three streams:
+        1. Trajectories: after each session, export the hermes trajectory (compressed via
+           trajectory_compressor), upload to S3 under tenant prefix, insert Postgres ref row.
+        2. Skills: watch per-tenant HERMES_HOME/skills/; new/changed skills are copied into
+           skill_curation_queue (status: pending_review). Promotion to the fleet skill base is a
+           manual review action in Phase 2 (simple CLI/SQL is fine — no admin UI yet).
+        3. Memory: per-tenant hermes memory is backed up to S3 (tenant prefix). Never shared.
+    Guardrail (non-negotiable):
+        Nothing crosses a tenant boundary without curation. Automated scrub of tenant-identifying
+        strings + human approval. Test: a skill created in tenant A is not loadable by tenant B
+        unless promoted.
+    Acceptance:
+        Run a dev session -> trajectory appears in S3 + ref row in Postgres; a synthetic skill
+        lands in the curation queue; promotion copies it to the fleet skill base and a tenant-B
+        session can then use it.
 
 PHASE 3 — Field Deployment (Weeks 9–12)
 Goal: cloud deploy, pilots, metric capture.
@@ -310,7 +360,7 @@ Cross-cutting features (must be done early)
     Langfuse integration (owner: ML + BE) — integrate LLM call and tool call tracing at each invocation. Files: app/services/observability.py
     Logging & metrics: add structured logs with session_id and turn_id
     Consent flag for training usage (append to sessions table and UI)
-    Security: ensure agent sandbox has resource limits and restricted egress
+    Security/guardrails: agent container has resource limits and egress-proxy allowlist (no default route); hermes tool allowlist enforced in one place (AgentService constructor); per-tenant HERMES_HOME — cross-tenant leak test in CI
 
 Exact SSE event schema (canonical — must be implemented verbatim)
 
@@ -356,7 +406,7 @@ These are the exact first tasks you should send to the coding agent in order. Ea
     Create repos & project skeleton (repair_logic_agent)
 
     Files to create:
-        repair_logic_agent/pyproject.toml (dependencies: fastapi, uvicorn, pydantic>=2, httpx, smolagents, litellm, psycopg[binary], boto3, langfuse, pytest, ruff, pytesseract, faiss-cpu or simple in-memory index)
+        repair_logic_agent/pyproject.toml (dependencies: fastapi, uvicorn, pydantic>=2, httpx, hermes-agent @ pinned git commit, litellm, psycopg[binary], boto3, langfuse, pytest, ruff, pytesseract, faiss-cpu or simple in-memory index)
         repair_logic_agent/app/main.py (FastAPI app with /health)
         repair_logic_agent/infra/docker-compose.yml (postgres:13, minio, optional langfuse)
     Command:
@@ -388,7 +438,7 @@ These are the exact first tasks you should send to the coding agent in order. Ea
 
     Implement CLI agent harness (repair_logic_agent/agents/run_cli.py)
 
-    Use minimal smolagents CodeAgent or fallback to litellm sequential calls; ensure the CLI can call knowledge_retrieval(query) tool
+    Embed hermes run_agent.AIAgent (or fallback to litellm sequential calls if the embed spike fails); ensure the CLI can call knowledge_retrieval(query) tool and answer the four spike questions from Feature 0.2
     Acceptance:
         python agents/run_cli.py
         Provide input "AL 309" -> agent prints JSON hypothesis and question
@@ -428,12 +478,13 @@ These are the exact first tasks you should send to the coding agent in order. Ea
 Acceptance criteria for moving from phase to phase
 
     End of Phase 0 (Week 2)
-        Knowledge spike result and decision documented (winner/hybrid)
-        CLI agent that makes at least one discriminating question in toy session
+        [DONE 2026-07-10] Knowledge spike result and decision documented — winner: hybrid
+        CLI agent (hermes embed) that makes at least one discriminating question in toy session
+        + GO/NO-GO on hermes documented (Feature 0.2 spike questions)
     End of Phase 1 (Week 4)
         SSE API accepts media, streams typed events, and dirty web prototype runs on phone for a first field test
     End of Phase 2 (Week 8)
-        Full Data Bridge persistence working, Vision + STT integrated, containerized agent sandboxed and streaming validated events, and mobile v1 can run an end-to-end diagnostic flow
+        Full Data Bridge persistence working, Vision + STT integrated, guardrails verified (tool allowlist, egress isolation, cross-tenant leak test), learning pipeline v1 delivering trajectories + skills to cloud, and mobile v1 can run an end-to-end diagnostic flow
     End of Phase 3 (Week 12)
         Pilot customers onboarded; basic metrics collected and initial diagnostic time delta measured
 
@@ -443,7 +494,7 @@ Small checklist you can hand to the coding agent now (top 10 atomic issues)
     (BE) Add docker-compose with Postgres + MinIO dev, and start services.
     (PM) Add golden_cases.yaml and upload 20 manual pages to repair_logic_agent/knowledge_spike/docs/.
     (ML) Implement rag_spike.py that can return top-3 pages for a query and a simple evaluator.
-    (ML) Implement run_cli.py using smolagents (or fallback to litellm) that calls knowledge_retrieval tool.
+    (ML) Implement run_cli.py embedding hermes AIAgent (or fallback to litellm) that calls knowledge_retrieval tool.
     (BE) Implement DB migration 001_create_schema.sql and run it against dev Postgres.
     (BE) Implement POST /api/v1/media/upload-url and test presigned PUT.
     (BE+ML) Implement basic AgentService that can accept a turn, call knowledge tool, produce a hypothesis event, and stream via SSE.
