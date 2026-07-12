@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1 and 1.2 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2 and 1.3 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -147,18 +147,28 @@ Feature 1.2 — Presigned upload endpoint (owner: BE) — 8h — **[DONE 2026-07
         use curl -T panel.jpg -H "Content-Type: image/jpeg" "<upload_url>" and then verify via storage GET exists.
     Spec + acceptance evidence: specs/2026-07-12_1819_feature_1.2_presigned_upload/
 
-Feature 1.3 — FastAPI wrapper + SSE stream (owner: BE + ML) — 24h
+Feature 1.3 — FastAPI wrapper + SSE stream (owner: BE + ML) — 24h — **[DONE 2026-07-12]**
 
     Endpoints to implement:
-        POST /api/v1/sessions → create session (returns session_id)
-        POST /api/v1/sessions/{id}/turns → submit user turn
-        GET /api/v1/sessions/{id}/stream → SSE event stream
-        GET /api/v1/sessions/{id}/turns/{tid}/events?after={event_id} → replay
+        POST /api/v1/sessions → create session (returns session_id; optional body machine_family/controller_family/metadata; tenant_id='dev' until Feature 2.5)
+        POST /api/v1/sessions/{id}/turns → submit user turn (idempotent via idempotency_key —
+            migration 002 unique index; returns the AGENT turn id = replay handle; spec D6/D9)
+        GET /api/v1/sessions/{id}/stream → SSE event stream (Last-Event-ID resume; wire id =
+            "{turn_index}.{event_index}", session-monotonic; spec D4)
+        GET /api/v1/sessions/{id}/turns/{tid}/events?after={event_index} → replay (integer
+            per-turn cursor, not event uuid — spec D5)
     Files:
         app/api/sessions.py
-        app/models/events.py (Pydantic step schemas — see below)
+        app/models/events.py (Pydantic step schemas — see below; plus ThinkingEvent/DoneEvent
+            and GuidanceEvent.safety_level per the canonical SSE section, spec D8)
         app/services/agent_service.py (AgentService stub that converts agent steps to events and persists them)
-    SSE: use fastapi.responses.EventSourceResponse (or manually stream text/event-stream)
+            Stub = scripted diagnostician over the seeded error_codes table (spec D1); the
+            embedded hermes AIAgent replaces the internals in Feature 2.5.
+        db/migrations/002_turn_idempotency.sql
+    SSE: manual text/event-stream framing over StreamingResponse (EventSourceResponse is
+        sse-starlette, not FastAPI — no new dependency, spec D2). Events are persisted to
+        diagnostic_turn_events BEFORE streaming; the stream is a DB replay + polling tail
+        (spec D3), so reconnect/replay is free.
     Pydantic event schemas to create (exact names and fields):
         HypothesisEvent
             id: str
@@ -190,7 +200,8 @@ Feature 1.3 — FastAPI wrapper + SSE stream (owner: BE + ML) — 24h
     Acceptance:
         Start server, create session, POST turn -> connect with curl:
             curl -N http://localhost:8000/api/v1/sessions/{id}/stream
-        SSE returns events with event: hypothesis \n data: {...}\n\n etc.
+        SSE returns events with event: hypothesis \n id: 1.3 \n data: {...}\n\n etc.
+    Spec + acceptance evidence: specs/2026-07-12_1835_feature_1.3_sse_api/
 
 Feature 1.4 — Dirty web prototype (owner: FE) — 24h
 
