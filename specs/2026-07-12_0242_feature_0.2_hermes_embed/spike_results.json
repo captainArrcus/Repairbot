@@ -1,0 +1,199 @@
+{
+  "q1_streaming": {
+    "question": "Does streaming expose enough structure for our typed SSE events?",
+    "turn1_event_types": [
+      "tool_call",
+      "tool_result",
+      "thinking",
+      "hypothesis",
+      "hypothesis",
+      "hypothesis",
+      "question",
+      "done"
+    ],
+    "turn2_event_types": [
+      "thinking",
+      "hypothesis",
+      "hypothesis",
+      "hypothesis",
+      "diagnosis",
+      "guidance",
+      "done"
+    ],
+    "has_hypothesis": true,
+    "has_question": true,
+    "has_tool_call_and_result": true,
+    "has_diagnosis_by_turn2": true,
+    "elapsed_s": 4.0,
+    "pass": true
+  },
+  "q2_skills_memory": {
+    "question": "Do skills/memory work when driven purely as a library?",
+    "skill_in_prompt_index": true,
+    "memory_enabled": true,
+    "memory_store_active": true,
+    "memory_tool_exposed": true,
+    "skill_tools_exposed": [
+      "skill_manage",
+      "skill_view",
+      "skills_list"
+    ],
+    "hermes_home_state": [
+      ".skills_prompt_snapshot.json",
+      "SOUL.md",
+      "config.yaml",
+      "logs/agent.log",
+      "logs/errors.log",
+      "models_dev_cache.json",
+      "skills/al309-axial-play-check/SKILL.md",
+      "trajectory_samples.jsonl"
+    ],
+    "pass": true
+  },
+  "q4_trajectory": {
+    "question": "Can we export the session in hermes' trajectory format?",
+    "trajectory_file": "/home/arrcus/Schreibtisch/Projekte/repair_bot/Repair_Logic_Agent/agents/.hermes_home/tenant_main/trajectory_samples.jsonl",
+    "exists": true,
+    "entries": 2,
+    "sharegpt_format": true,
+    "contains_tool_call": true,
+    "pass": true
+  },
+  "exposed_tools": [
+    "knowledge_retrieval",
+    "memory",
+    "skill_manage",
+    "skill_view",
+    "skills_list"
+  ],
+  "transcript": [
+    {
+      "turn": 1,
+      "user": "Controller: SINUMERIK 840D, error AL 309. Rattling sound when jogging the X-axis.",
+      "events": [
+        {
+          "id": "bdc744c8-6648-4b14-9ff4-0972f2a79a77",
+          "type": "tool_call",
+          "tool": "knowledge_retrieval",
+          "args": {
+            "query": "SINUMERIK 840D error AL 309 rattling sound X-axis"
+          }
+        },
+        {
+          "id": "28124042-cd4e-4549-8789-919359642366",
+          "type": "tool_result",
+          "tool": "knowledge_retrieval",
+          "result_summary": "{\"path\": \"exact\", \"results\": [{\"code\": \"AL 309\", \"controller_family\": \"SINUMERIK_840D_sl\", \"message\": \"Axis {axis}: Following error (lag error) too large\", \"probable_causes\": [\"Ball screw bearing worn — increased axial play\", \"Coupling between motor and ball screw loose or damaged\", \"Mechanical resi"
+        },
+        {
+          "id": "489d4e7b-6032-41e3-b4c4-bf3aca2bf3a0",
+          "type": "thinking",
+          "content": "The AL 309 alarm is a following error (lag) often linked to mechanical degradation. The reported rattling sound specifically suggests a mechanical issue like loose ball screw bearings or a failing motor coupling, rather than an electrical/encoder issue alone. I will initiate the diagnostic process by prioritizing these mechanical checks."
+        },
+        {
+          "id": "6e846d64-74ba-42ea-be49-4f038aea2d2e",
+          "type": "hypothesis",
+          "hypothesis_id": "h1",
+          "description": "Worn or loose ball screw bearing causing axial play",
+          "confidence": 0.6,
+          "eliminated": false
+        },
+        {
+          "id": "6846fa5e-44f3-4963-a8e6-38e6b66c83c4",
+          "type": "hypothesis",
+          "hypothesis_id": "h2",
+          "description": "Loose or damaged motor-to-ball-screw coupling",
+          "confidence": 0.3,
+          "eliminated": false
+        },
+        {
+          "id": "9e170937-983f-46a4-9ecb-7bf09cd13f1e",
+          "type": "hypothesis",
+          "hypothesis_id": "h3",
+          "description": "Mechanical guide rail damage or seizure",
+          "confidence": 0.1,
+          "eliminated": false
+        },
+        {
+          "id": "90d93813-b67b-4849-9a8a-f53c26dd5630",
+          "type": "question",
+          "content": "Please perform the following: With the machine powered OFF, firmly grab the X-axis carriage/table and attempt to push and pull it in the direction of the X-axis. Do you feel any 'click' or movement before the axis locks in position? If so, estimate the amount of movement in mm.",
+          "evidence_type": "tactile",
+          "required_format": "mm"
+        },
+        {
+          "id": "b5d15c76-1129-4b45-936e-460b93b344f1",
+          "type": "done",
+          "status": "awaiting_user_input"
+        }
+      ]
+    },
+    {
+      "turn": 2,
+      "user": "I can push the table by hand, there is about 0.5 mm of axial play.",
+      "events": [
+        {
+          "id": "b1bb4eda-775d-4e8a-98ba-9d920dfccc63",
+          "type": "thinking",
+          "content": "0.5 mm of axial play is significantly above the 0.02 mm threshold mentioned in the alarm documentation. This confirms severe wear in the ball screw bearing assembly or mounting, which is likely the cause of both the rattling and the AL 309 following error. No further questioning is needed to confirm the mechanical failure."
+        },
+        {
+          "id": "1136adec-5aa6-4878-a2ce-651c00bbd246",
+          "type": "hypothesis",
+          "hypothesis_id": "h1",
+          "description": "Worn or loose ball screw bearing causing axial play",
+          "confidence": 0.95,
+          "eliminated": false
+        },
+        {
+          "id": "d100438b-77f7-43e8-bec4-2e0f4f46a3ce",
+          "type": "hypothesis",
+          "hypothesis_id": "h2",
+          "description": "Loose or damaged motor-to-ball-screw coupling",
+          "confidence": 0.05,
+          "eliminated": true
+        },
+        {
+          "id": "5206a4c4-f1ba-48a9-a24c-7b9039ae5057",
+          "type": "hypothesis",
+          "hypothesis_id": "h3",
+          "description": "Mechanical guide rail damage or seizure",
+          "confidence": 0.0,
+          "eliminated": true
+        },
+        {
+          "id": "4987a60d-4be6-4926-82ca-72d5de28c66d",
+          "type": "diagnosis",
+          "hypothesis_id": "h1",
+          "confidence": 0.95,
+          "explanation": "The measured 0.5mm axial play is highly excessive (limit <0.02mm). This indicates a mechanical failure in the ball screw support bearings (or their mounting), which accounts for both the 'rattling' noise during motion and the following error (AL 309) as the machine cannot maintain position accuracy under load."
+        },
+        {
+          "id": "0d645401-07cf-4233-91fb-81282345d893",
+          "type": "guidance",
+          "step_index": 1,
+          "content": "The machine MUST be taken out of service to prevent further damage. 1. Identify the bearing housing at the end of the X-axis ball screw. 2. Inspect the lock nut for the bearing (check if it has worked loose). 3. If the nut is tight, the internal bearing race is likely failed and requires replacement. Do not attempt to operate the axis until the bearing is inspected and replaced.",
+          "safety_level": "high"
+        },
+        {
+          "id": "6ffd82bd-6a55-48fc-9e4c-7aa47653fab6",
+          "type": "done",
+          "status": "complete"
+        }
+      ]
+    }
+  ],
+  "q3_isolation": {
+    "question": "Does per-HERMES_HOME isolation hold (parallel sessions, zero bleed)?",
+    "worker_exit_codes": [
+      0,
+      0
+    ],
+    "marker_b_found_in_home_a": [],
+    "marker_a_found_in_home_b": [],
+    "own_marker_persisted_a": true,
+    "own_marker_persisted_b": true,
+    "pass": true
+  },
+  "all_pass": true
+}

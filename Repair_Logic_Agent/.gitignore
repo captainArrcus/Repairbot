@@ -1,3 +1,6 @@
 .env
 data/
 data_crawling_pipe/
+agents/.hermes_home/
+agents/logs/
+agents/spike_results.json

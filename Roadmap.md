@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0 and 0.1 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1 and 0.2 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -267,8 +267,10 @@ Feature 2.5 — AgentService: embedded hermes AIAgent + guardrails + Pydantic st
         AgentService.stream_events(session_id) → generator used by SSE endpoint
     Key points:
         Embed run_agent.AIAgent (hermes-agent, pinned commit) — productionize the Feature 0.2 spike
-        Tool allowlist: exactly the 4 domain tools (vision, error-code lookup, knowledge retrieval,
-        web search). No terminal, no browser, no MCP, no subagents — never registered.
+        Tool allowlist: the 4 domain tools (vision, error-code lookup, knowledge retrieval,
+        web search) + hermes' 4 learning-loop tools (memory, skills_list, skill_view,
+        skill_manage — required for the learning loop, Feature 0.2 finding, ratified).
+        No terminal, no browser, no MCP, no subagents — never registered.
         Per-tenant HERMES_HOME (memory/skills/session cache); Postgres stays source of truth
         Event mapper converts the hermes stream to our Pydantic events
         Validate each event against app/models/events.py; if invalid, agent_service synthesizes a

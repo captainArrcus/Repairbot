@@ -88,7 +88,7 @@ Honest answer:
 | CLI / TUI | Our channel is the mobile app via FastAPI |
 | Gateway + messaging channels (Telegram, WhatsApp, …) | Deferred to Phase 3+ (validated option — relay-connector contract exists) |
 | Terminal execution tools (all 6 backends) | The repair agent has no business running shell commands |
-| The 40+ general-purpose tools, MCP extras, cron, subagents | Tool allowlist is exactly our 4 domain tools |
+| The 40+ general-purpose tools, MCP extras, cron, subagents | Tool allowlist is our 4 domain tools + hermes' 4 learning-loop tools (see §Guardrails 1) |
 
 **What's genuinely risky:**
 - **Single-user design.** Hermes state (memory, skills, sessions) lives file-based under `HERMES_HOME` — built for one user per instance. Multi-tenant operation requires strict per-tenant isolation (see §Guardrails). Cross-tenant knowledge leakage is our #1 integration risk.
@@ -106,7 +106,7 @@ Honest answer:
 
 Hermes is a general-purpose agent framework with wide capabilities. We embed it with defense in depth:
 
-1. **Tool allowlist.** The agent is constructed with exactly the four domain tools below. Terminal execution, browser, image generation, MCP servers, subagent spawning — never registered. No code-execution path exists.
+1. **Tool allowlist.** The agent is constructed with exactly the four domain tools below **plus hermes' four learning-loop tools** (`memory`, `skills_list`, `skill_view`, `skill_manage`) — the learning loop only functions through its own tools (Feature 0.2 finding, ratified 2026-07-12; they are file-based and tenant-scoped). Terminal execution, browser, image generation, MCP servers, subagent spawning — never registered. No code-execution path exists. The exact exposed-tool set is asserted at every session start.
 2. **Network egress isolation.** We adopt the dual-network Docker pattern from hermes' own `docs/security/network-egress-isolation.md`: the agent container has no default route; an egress proxy allows an explicit host allowlist (LLM endpoints, S3, Langfuse). Prompt-injection exfiltration has nowhere to go.
 3. **Tenant isolation.** One `HERMES_HOME` per tenant — memory, skills, and session state never share a directory across customers. Postgres remains the source of truth; hermes file/SQLite state is a rebuildable cache tier. A cross-tenant leak test is part of the golden harness.
 4. **Physical-safety approval.** `guidance` events carry `safety_level`. High-safety steps (electrical work, lockout/tagout) require explicit technician confirmation in the app before follow-up steps stream — hermes' command-approval concept mapped to physical actions.
@@ -638,7 +638,7 @@ pytest
 Before this document becomes binding:
 
 - [x] **Phase 0 Knowledge Spike** — DONE 2026-07-10. Winner: hybrid (structured lookup + LLM over narrowed candidates). See `knowledge_spike/FINDINGS.md`.
-- [ ] **hermes embed spike**: Embed `run_agent.AIAgent` behind `AgentService`, drive the diagnostic loop end-to-end. Must verify: (a) streaming event mapping to our SSE types, (b) skills/memory function without CLI/gateway, (c) per-tenant `HERMES_HOME` isolation holds. If we fight the framework, drop to the escape hatch.
+- [x] **hermes embed spike** — DONE 2026-07-12, **GO** (commit `4281151` pinned). All four questions pass: (a) streaming maps to our SSE types, (b) skills/memory work as a library — but only with hermes' own learning tools on the allowlist (`skills_list`, `skill_view`, `skill_manage`, `memory`; amends "exactly 4 domain tools" in §Guardrails), (c) per-tenant `HERMES_HOME` isolation holds (parallel sessions, zero bleed), (d) trajectory export works (ShareGPT JSONL). See `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`.
 - [ ] **Frontend developer identified**: Lock React Native vs. Flutter based on their expertise
 - [ ] **Langfuse deployed**: Self-hosted instance running before first agent integration test
 

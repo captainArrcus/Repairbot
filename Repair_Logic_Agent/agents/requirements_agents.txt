@@ -1,0 +1,7 @@
+# Feature 0.2 — hermes embed spike. Install into a DEDICATED venv (.venv-hermes):
+# hermes exact-pins its deps (openai==2.24.0 etc.) and must not fight other venvs.
+#
+#   uv venv --python 3.13 .venv-hermes
+#   VIRTUAL_ENV=$PWD/.venv-hermes uv pip install -r Repair_Logic_Agent/agents/requirements_agents.txt
+hermes-agent @ git+https://github.com/NousResearch/hermes-agent@4281151ae859241351ba14d8c7682dc67ff4c126
+scikit-learn>=1.5
