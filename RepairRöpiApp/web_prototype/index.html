@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RepairRöpi — Prototyp</title>
+  <style>
+    /* ponytail: dirty field-test styling, phone-first, no framework */
+    * { box-sizing: border-box; margin: 0; }
+    body { font-family: system-ui, sans-serif; background: #14181d; color: #e8e8e8;
+           display: flex; flex-direction: column; min-height: 100dvh; }
+    header { padding: .7rem 1rem; background: #1e242b; font-weight: 700; }
+    header small { font-weight: 400; color: #9ab; margin-left: .5rem; }
+    #status { padding: .4rem 1rem; font-size: .85rem; color: #8fd; min-height: 1.7rem; }
+    main { flex: 1; padding: 0 1rem 1rem; overflow-y: auto; }
+    section h2 { font-size: .8rem; text-transform: uppercase; color: #789; margin: .9rem 0 .3rem; }
+    .hypo { padding: .45rem .6rem; background: #1e242b; border-radius: .4rem; margin-bottom: .3rem; }
+    .hypo.eliminated { text-decoration: line-through; opacity: .45; }
+    .hypo .bar { height: 4px; background: #345; border-radius: 2px; margin-top: .35rem; }
+    .hypo .bar > div { height: 100%; background: #4cd; border-radius: 2px; }
+    #question-card { background: #24313d; border-left: 4px solid #4cd; padding: .7rem;
+                     border-radius: .4rem; font-size: 1.05rem; }
+    #question-card .hint { font-size: .8rem; color: #9ab; margin-top: .3rem; }
+    #log { font-size: .78rem; color: #789; font-family: monospace; }
+    #log div { margin-top: .2rem; overflow-wrap: anywhere; }
+    footer { display: flex; gap: .5rem; padding: .6rem; background: #1e242b; position: sticky; bottom: 0; }
+    footer input[type=text] { flex: 1; padding: .6rem; border-radius: .4rem; border: none;
+                              background: #2a323b; color: #eee; font-size: 1rem; }
+    button, .cam { padding: .6rem .9rem; border: none; border-radius: .4rem; background: #2a6;
+                   color: #fff; font-size: 1rem; cursor: pointer; }
+    .cam { background: #345; }
+    .cam.cta { background: #d80; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 50% { opacity: .6; } }
+    button:disabled { opacity: .4; }
+    #start { margin: 2rem auto; display: block; padding: 1rem 2rem; font-size: 1.2rem; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>RepairRöpi<small>Prototyp — Feldtest</small></header>
+  <div id="status">Bereit.</div>
+  <button id="start">Session starten</button>
+  <main id="app" hidden>
+    <section><h2>Frage</h2><div id="question-card">Beschreiben Sie das Problem oder senden Sie ein Foto.</div></section>
+    <section><h2>Hypothesen</h2><div id="hypotheses"></div></section>
+    <section><h2>Protokoll</h2><div id="log"></div></section>
+  </main>
+  <footer id="composer" hidden>
+    <label class="cam" id="cam-label">📷<input type="file" accept="image/*" capture="environment" id="photo" hidden></label>
+    <input type="text" id="text" placeholder="Symptom / Fehlercode …">
+    <button id="send">Senden</button>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>

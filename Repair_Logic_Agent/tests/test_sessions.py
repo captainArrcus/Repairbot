@@ -103,6 +103,36 @@ def test_no_error_code_asks_for_photo():
     events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
     question = next(e["event_data"] for e in events if e["event_type"] == "question")
     assert question["evidence_type"] == "photo"
+    assert "keinen Fehlercode erkannt" in question["content"]
+    # no code extracted → no pointless lookup with empty candidates
+    assert "tool_call" not in [e["event_type"] for e in events]
+
+
+@needs_db
+def test_unknown_error_code_is_named_in_question():
+    session_id = _create_session()
+    resp = client.post(
+        f"/api/v1/sessions/{session_id}/turns",
+        json={"text": "Display zeigt AL 999999 beim Einschalten"},
+    )
+    turn_id = resp.json()["turn_id"]
+    events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
+    types = [e["event_type"] for e in events]
+    assert "tool_call" in types and "hypothesis" not in types
+    question = next(e["event_data"] for e in events if e["event_type"] == "question")
+    assert "AL 999999" in question["content"]  # user sees WHICH code was not found
+
+
+@needs_db
+def test_bare_number_resolves_to_al_code():
+    session_id = _create_session()
+    resp = client.post(
+        f"/api/v1/sessions/{session_id}/turns",
+        json={"text": "Fehler 309 an der X-Achse"},
+    )
+    turn_id = resp.json()["turn_id"]
+    events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
+    assert "hypothesis" in [e["event_type"] for e in events]  # matched seeded "AL 309"
 
 
 class _OneShotRequest:

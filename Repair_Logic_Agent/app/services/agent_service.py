@@ -27,9 +27,9 @@ from app.models.events import (
     ToolResultEvent,
 )
 
-# ponytail: catches the seeded formats ("AL 309", "F07011", bare "10720");
+# ponytail: catches the seeded formats ("AL 309", "F07011", bare "10720", bare "309");
 # real prefix/whitespace/case normalization is the ErrorCodeLookupTool's job (Feature 2.2)
-_CODE_RE = re.compile(r"\b(?:AL\s?\d{3,6}|F\d{5}|\d{4,6})\b", re.IGNORECASE)
+_CODE_RE = re.compile(r"\b(?:AL[\s-]?\d{3,6}|F\d{4,6}|\d{3,6})\b", re.IGNORECASE)
 
 # ponytail: fabricated confidence ladder for the stub's ranked hypotheses;
 # real confidences come from the agent (Feature 2.5)
@@ -148,8 +148,25 @@ def _scripted_diagnosis(
 ) -> tuple[list[Event], list[dict], str]:
     """Returns (events, tools_called json, primary question text)."""
     candidates = _extract_candidates(text, machine_context)
+
+    if not candidates:
+        # no code in the message — a lookup with nothing to look up is just noise
+        question = (
+            "Ich habe in Ihrer Nachricht keinen Fehlercode erkannt. Nennen Sie bitte den "
+            "Fehlercode vom Bedienfeld (z. B. AL 309) oder machen Sie ein Foto der "
+            "angezeigten Fehlermeldung."
+        )
+        events = [
+            ThinkingEvent(content="Kein Fehlercode in der Meldung erkannt."),
+            QuestionEvent(
+                content=question, evidence_type="photo", required_format="image_of_panel"
+            ),
+            DoneEvent(status="awaiting_user_input"),
+        ]
+        return events, [], question
+
     events: list[Event] = [
-        ThinkingEvent(content=f"Suche Fehlercode in der Meldung: {candidates or 'kein Code'} ..."),
+        ThinkingEvent(content=f"Suche Fehlercode in der Meldung: {', '.join(candidates)} ..."),
         ToolCallEvent(tool="error_code_lookup", args={"candidates": candidates}),
     ]
 
@@ -158,8 +175,9 @@ def _scripted_diagnosis(
         summary = "no exact match in error_codes"
         events.append(ToolResultEvent(tool="error_code_lookup", result_summary=summary))
         question = (
-            "Ich konnte keinen Fehlercode zuordnen. Bitte machen Sie ein Foto des "
-            "Bedienfelds mit der angezeigten Fehlermeldung."
+            f"Der Fehlercode „{candidates[0]}“ ist noch nicht in unserer Datenbank. "
+            "Bitte machen Sie ein Foto des Bedienfelds mit der angezeigten Fehlermeldung, "
+            "damit wir den Code prüfen können."
         )
         events.append(
             QuestionEvent(content=question, evidence_type="photo", required_format="image_of_panel")
@@ -208,7 +226,9 @@ def _extract_candidates(text: str, machine_context: dict | None) -> list[str]:
     normalized = []
     for c in raw:
         c = c.strip()
-        normalized += [c, c.upper(), re.sub(r"(?i)^al\s*", "AL ", c).upper()]
+        normalized += [c, c.upper(), re.sub(r"(?i)^al[\s-]*", "AL ", c).upper()]
+        if c.isdigit():
+            normalized.append(f"AL {c}")  # bare number — seeded AL codes store the prefix
     return list(dict.fromkeys(normalized))
 
 

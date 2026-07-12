@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2 and 1.3 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3 and 1.4 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -203,12 +203,14 @@ Feature 1.3 — FastAPI wrapper + SSE stream (owner: BE + ML) — 24h — **[DON
         SSE returns events with event: hypothesis \n id: 1.3 \n data: {...}\n\n etc.
     Spec + acceptance evidence: specs/2026-07-12_1835_feature_1.3_sse_api/
 
-Feature 1.4 — Dirty web prototype (owner: FE) — 24h
+Feature 1.4 — Dirty web prototype (owner: FE) — 24h — **[DONE 2026-07-12, dev-verified]**
 
-    Repo: repairropi_app/web_prototype/
+    Repo: RepairRöpiApp/web_prototype/ (real frontend dir; spec D1)
     Files:
         index.html (single page)
         app.js (JS to capture photo, request presigned URL, upload, POST turn, open SSE)
+        + backend: CORSMiddleware allow-all in app/main.py (page :8080 → API :8000 is
+          cross-origin; tighten in Feature 2.5/3.1 — spec D3)
     Implementation steps:
         page shows "Start session" button -> creates session via POST /api/v1/sessions
         camera capture input (input type="file" accept="image/*" capture="environment")
@@ -216,7 +218,11 @@ Feature 1.4 — Dirty web prototype (owner: FE) — 24h
         UI renders events: thinking, hypothesis list, questions with primary CTA (take photo)
     Acceptance (FIRST FIELD TEST):
         Open web link on phone, take photo of control, call flow returns streamed events and asks a question.
-    Test: open file via a simple static server: python -m http.server 8080 in repairropi_app/web_prototype and visit via phone on same LAN.
+    Test: open file via a simple static server: python -m http.server 8080 in RepairRöpiApp/web_prototype and visit via phone on same LAN.
+        Field-test env (spec D5): S3_ENDPOINT_URL=http://<laptop-lan-ip>:9000 + uvicorn
+        --host 0.0.0.0 — presigned URLs embed the backend's S3 endpoint, localhost is
+        unreachable from the phone.
+    Spec + acceptance evidence: specs/2026-07-12_1946_feature_1.4_web_prototype/
 
 PHASE 2 — Foundation & App (Weeks 5–8)
 Focus: productionize the core pipeline, add audio, structured traces, guardrails (tool allowlist, egress isolation, tenant isolation), learning pipeline, and build native app.
@@ -476,7 +482,7 @@ These are the exact first tasks you should send to the coding agent in order. Ea
         Create session: curl -X POST http://localhost:8000/api/v1/sessions -> session_id
         POST turn and open SSE: curl -N http://localhost:8000/api/v1/sessions/{id}/stream -> see events
 
-    Dirty web prototype (repairropi_app/web_prototype/)
+    Dirty web prototype (RepairRöpiApp/web_prototype/)
 
     Create index.html and app.js to call presigned URL endpoint + SSE
     Acceptance:

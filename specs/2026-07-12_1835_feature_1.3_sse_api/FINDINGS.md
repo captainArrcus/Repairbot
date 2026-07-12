@@ -1,8 +1,7 @@
 # Feature 1.3 — FastAPI wrapper + SSE stream: Findings / Acceptance
 
-**Status: COMPLETE — all live acceptance criteria pass (2026-07-12). One caveat: the
-final `uv run pytest -q` re-run was blocked by a Claude-Code permission-classifier
-outage; the suite must be re-run once (expected 12 passed — see table note).**
+**Status: COMPLETE — all live acceptance criteria pass (2026-07-12). The pending
+`uv run pytest -q` re-run passed during Feature 1.4 acceptance: 12 passed.**
 
 ## Acceptance evidence (live uvicorn + curl, dev stack)
 
@@ -16,7 +15,7 @@ outage; the suite must be re-run once (expected 12 passed — see table note).**
 | Duplicate POST (same `idempotency_key`) | same `turn_id`, no duplicate rows |
 | Unknown session / turn | 404 on turns, stream, replay |
 | Migration 002 applied | `ALTER TABLE` + unique partial index OK |
-| `uv run pytest -q` | **PENDING re-run** — first run hung in the SSE test (TestClient drains unbounded bodies; test rewritten to drive the generator directly), re-run blocked by tool outage. Expected: 12 passed (1 health + 3 schema + 3 media + 5 sessions) |
+| `uv run pytest -q` | **12 passed** (re-run 2026-07-12 during Feature 1.4; first run had hung in the SSE test — TestClient drains unbounded bodies; test rewritten to drive the generator directly) |
 | `ruff check app tests db` + `ruff format --check` | clean (verified before the outage) |
 
 ## Notes for later features
