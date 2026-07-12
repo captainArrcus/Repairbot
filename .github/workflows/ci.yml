@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # single-repo layout: backend lives in a subdirectory (spec feature_1.0 D1)
+        working-directory: Repair_Logic_Agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ruff check app tests
+      - run: uv run ruff format --check app tests
+      - run: uv run pytest

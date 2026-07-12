@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1 and 0.2 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2 and 1.0 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -95,16 +95,17 @@ Feature 0.2 — hermes embed spike + CLI diagnostic agent (owner: ML + BE) — 3
 PHASE 1 — API & "Wizard of Oz" UI (Weeks 3–4)
 Goal: get a smartphone in front of a machine and run the first field tests. Keep UI dirty — web prototype or Gradio.
 
-Feature 1.0 — Project skeleton & dev infra (owner: BE) — 8h
+Feature 1.0 — Project skeleton & dev infra (owner: BE) — 8h — **[DONE 2026-07-12]**
 
     Repo: repair_logic_agent
     Files to create:
-        pyproject.toml (core dependencies)
-        infra/docker-compose.yml (postgres, MinIO dev, langfuse)
+        pyproject.toml (core dependencies; hermes-agent stays in its dedicated venv — see spec D2)
+        infra/docker-compose.yml (postgres:16, MinIO dev, Langfuse v3 stack incl. clickhouse + redis)
         app/main.py (FastAPI app skeleton)
         app/config.py (env loader)
-        .github/workflows/ci.yml (ruff + pytest stub)
+        .github/workflows/ci.yml (ruff + pytest; lives at git root — single-repo layout)
     Acceptance: docker-compose up starts services; FastAPI health check returns 200 at /health
+    Spec + acceptance evidence: specs/2026-07-12_1518_feature_1.0_project_skeleton/
 
 Feature 1.1 — DB migration and seeded error-code table (owner: BE) — 12h
 

@@ -1,0 +1,37 @@
+[project]
+name = "repair-logic-agent"
+version = "0.1.0"
+description = "Multimodal diagnostic agent backend for CNC machine repair (RepairRöpi)"
+requires-python = ">=3.12"
+# hermes-agent deliberately absent: exact-pins conflict, lives in .venv-hermes
+# (spec 2026-07-12_1518_feature_1.0 D2 / agents/requirements_agents.txt)
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "httpx",
+    "litellm~=1.77",
+    "psycopg[binary]",
+    "boto3",
+    "langfuse",
+    "python-dotenv",
+    "pyyaml",
+    "pillow",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

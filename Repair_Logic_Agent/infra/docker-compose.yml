@@ -1,0 +1,138 @@
+# Dev infra: postgres + MinIO (dev S3) + Langfuse v3 (web/worker/clickhouse/redis).
+# All credentials/secrets here are DEV-ONLY values (spec feature_1.0 D4).
+name: repair-logic-agent
+
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://postgres:postgres@postgres:5432/langfuse
+  SALT: dev-salt-not-for-prod
+  ENCRYPTION_KEY: 4f8a1c9e2b7d6053e1a4b8c2d5f7091a3c6e8b0d2f4a6c8e0b1d3f5a7c9e1b3d
+  TELEMETRY_ENABLED: "false"
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: clickhouse
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: langfusedev
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: repair
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || curl -sf http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/repair-media local/langfuse"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user clickhouse --password clickhouse --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass langfusedev --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a langfusedev ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *langfuse-env
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-nextauth-secret
+      # deterministic dev org/project/keys so app + LiteLLM can be configured headlessly
+      LANGFUSE_INIT_ORG_ID: repairropi
+      LANGFUSE_INIT_ORG_NAME: RepairRoepi
+      LANGFUSE_INIT_PROJECT_ID: repair-logic-agent-dev
+      LANGFUSE_INIT_PROJECT_NAME: repair-logic-agent-dev
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-dev-repairropi
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-dev-repairropi
+      LANGFUSE_INIT_USER_EMAIL: dev@repairropi.local
+      LANGFUSE_INIT_USER_NAME: dev
+      LANGFUSE_INIT_USER_PASSWORD: devpassword1
+    ports:
+      - "3000:3000"
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *langfuse-env
+
+volumes:
+  pgdata:
+  minio-data:
+  clickhouse-data:

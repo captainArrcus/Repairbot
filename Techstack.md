@@ -604,6 +604,9 @@ httpx                      # async HTTP client (NOT requests)
 # Agent
 hermes-agent @ git+https://github.com/NousResearch/hermes-agent@<pinned-commit>
                            # no semver upstream — upgrade deliberately, gated by golden harness
+                           # NOT in pyproject.toml: hermes exact-pins its deps (openai==2.24.0)
+                           # → dedicated venv .venv-hermes (Feature 1.0 spec D2); process
+                           # boundary between API layer and agent resolved in Feature 2.5
 litellm ~= 1.77            # proxy mode; pin major version
 
 # Document Processing
@@ -640,7 +643,7 @@ Before this document becomes binding:
 - [x] **Phase 0 Knowledge Spike** — DONE 2026-07-10. Winner: hybrid (structured lookup + LLM over narrowed candidates). See `knowledge_spike/FINDINGS.md`.
 - [x] **hermes embed spike** — DONE 2026-07-12, **GO** (commit `4281151` pinned). All four questions pass: (a) streaming maps to our SSE types, (b) skills/memory work as a library — but only with hermes' own learning tools on the allowlist (`skills_list`, `skill_view`, `skill_manage`, `memory`; amends "exactly 4 domain tools" in §Guardrails), (c) per-tenant `HERMES_HOME` isolation holds (parallel sessions, zero bleed), (d) trajectory export works (ShareGPT JSONL). See `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`.
 - [ ] **Frontend developer identified**: Lock React Native vs. Flutter based on their expertise
-- [ ] **Langfuse deployed**: Self-hosted instance running before first agent integration test
+- [x] **Langfuse deployed** — DONE 2026-07-12 (Feature 1.0). Self-hosted v3 in `Repair_Logic_Agent/infra/docker-compose.yml` (web + worker + ClickHouse + Redis; Postgres/MinIO shared with the dev stack). Dev keys provisioned via `LANGFUSE_INIT_*` — see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 ---
 
