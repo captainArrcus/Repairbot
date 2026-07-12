@@ -396,6 +396,35 @@ CREATE TABLE session_outcomes (
 > [!NOTE]
 > This schema lets us reconstruct full diagnostic chains for fine-tuning: `initial_state → [evidence, hypothesis_update]* → diagnosis → action → outcome`. Every hypothesis has a traceable lifecycle.
 
+### Error-code lookup table (Feature 1.1)
+
+The exact-lookup fast path of the hybrid knowledge winner. Columns mirror the curated
+`Research_Data/01_error_code_databases/*.yaml` entries; list/object fields are JSONB.
+Codes are stored as printed in the manual (`AL 309`, `F07011`) — query-time normalization
+belongs to the ErrorCodeLookupTool (Feature 2.2). `software_version`/`source` exist because
+alarm meanings are firmware-version-specific.
+
+```sql
+CREATE TABLE error_codes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    controller_family TEXT NOT NULL,
+    code TEXT NOT NULL,
+    category TEXT,                  -- NC | DRV | PLC | HMI
+    severity TEXT,                  -- error | warning | fault
+    message_de TEXT,
+    message_en TEXT,
+    probable_causes JSONB NOT NULL DEFAULT '[]',
+    recommended_actions JSONB NOT NULL DEFAULT '[]',
+    related_components JSONB NOT NULL DEFAULT '[]',
+    discriminating_questions JSONB NOT NULL DEFAULT '[]',
+    manual_reference TEXT,
+    spare_part_refs JSONB NOT NULL DEFAULT '[]',
+    software_version TEXT,
+    source TEXT,
+    UNIQUE (controller_family, code)
+);
+```
+
 ---
 
 ## API Contract

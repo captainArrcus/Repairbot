@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2 and 1.0 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0 and 1.1 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -107,10 +107,11 @@ Feature 1.0 — Project skeleton & dev infra (owner: BE) — 8h — **[DONE 2026
     Acceptance: docker-compose up starts services; FastAPI health check returns 200 at /health
     Spec + acceptance evidence: specs/2026-07-12_1518_feature_1.0_project_skeleton/
 
-Feature 1.1 — DB migration and seeded error-code table (owner: BE) — 12h
+Feature 1.1 — DB migration and seeded error-code table (owner: BE) — 12h — **[DONE 2026-07-12]**
 
     Repo: repair_logic_agent/db/migrations/001_create_schema.sql (exact SQL provided)
     Add seed script: db/seeds/seed_error_codes.sql with 20 SINUMERIK codes and descriptions
+        (15 from Research_Data curated alarm DB + 5 golden-case/standard codes; see spec D3)
     Required exact SQL (create, insert) — use the schema from the architecture doc (diagnostic_sessions incl. tenant_id, diagnostic_turns, hypotheses, hypothesis_updates, session_outcomes) + diagnostic_turn_events table:
         ADD table diagnostic_turn_events (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -120,9 +121,14 @@ Feature 1.1 — DB migration and seeded error-code table (owner: BE) — 12h
         event_data JSONB,
         created_at TIMESTAMPTZ DEFAULT now()
         );
-    Acceptance:
-        Run: docker-compose exec db psql -U postgres -f db/migrations/001_create_schema.sql
-        docker-compose exec db psql -U postgres -c "select count(*) from error_codes;" => shows seeded rows.
+    error_codes columns (defined in spec D2, DDL in Techstack schema section): controller_family,
+        code (stored as printed in manual; normalization = Feature 2.2), category, severity,
+        message_de/en, probable_causes/recommended_actions/related_components/
+        discriminating_questions/spare_part_refs (JSONB), manual_reference, software_version, source
+    Acceptance (commands corrected — service `postgres`, DB `repair`, file streamed; spec D1):
+        docker compose -f infra/docker-compose.yml exec -T postgres psql -U postgres -d repair -v ON_ERROR_STOP=1 < db/migrations/001_create_schema.sql
+        docker compose -f infra/docker-compose.yml exec -T postgres psql -U postgres -d repair -c "select count(*) from error_codes;" => 20 seeded rows.
+    Spec + acceptance evidence: specs/2026-07-12_1805_feature_1.1_db_migration/
 
 Feature 1.2 — Presigned upload endpoint (owner: BE) — 8h
 
@@ -422,10 +428,10 @@ These are the exact first tasks you should send to the coding agent in order. Ea
     Add DB migration (repair_logic_agent/db/migrations/001_create_schema.sql)
 
     Copy the SQL schema from the architecture doc, plus diagnostic_turn_events table and error_codes table.
-    Command:
-        docker-compose exec db psql -U postgres -f db/migrations/001_create_schema.sql
+    Command (corrected, spec feature_1.1 D1):
+        docker compose -f infra/docker-compose.yml exec -T postgres psql -U postgres -d repair -v ON_ERROR_STOP=1 < db/migrations/001_create_schema.sql
     Acceptance:
-        docker-compose exec db psql -U postgres -c '\dt' shows tables
+        docker compose -f infra/docker-compose.yml exec postgres psql -U postgres -d repair -c '\dt' shows tables
 
     Add golden fixtures (repair_logic_agent/knowledge_spike/golden_cases.yaml + docs/)
 
