@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0 and 1.1 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1 and 1.2 are COMPLETE. Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -130,17 +130,22 @@ Feature 1.1 — DB migration and seeded error-code table (owner: BE) — 12h —
         docker compose -f infra/docker-compose.yml exec -T postgres psql -U postgres -d repair -c "select count(*) from error_codes;" => 20 seeded rows.
     Spec + acceptance evidence: specs/2026-07-12_1805_feature_1.1_db_migration/
 
-Feature 1.2 — Presigned upload endpoint (owner: BE) — 8h
+Feature 1.2 — Presigned upload endpoint (owner: BE) — 8h — **[DONE 2026-07-12]**
 
     Endpoint: POST /api/v1/media/upload-url
     Input JSON: { "filename": "panel.jpg", "content_type": "image/jpeg", "purpose": "turn_media" }
+        content_type allowlisted to image/* and audio/* (422 otherwise); filename/purpose
+        accepted but not persisted yet (spec D2/D3)
     Response JSON: { "upload_url": "...", "media_key": "uuid" }
+        object key == media_key (retrieval invariant for vision/STT); tenant prefix moves
+        into media_key with Feature 2.5
     Implementation files:
         app/api/media.py → function create_presigned_upload()
         app/services/storage.py → function generate_presigned_put(media_key, content_type)
-    Acceptance:
-        curl -X POST http://localhost:8000/api/v1/media/upload-url -d '{"filename":"a.jpg","content_type":"image/jpeg"}'
-        use curl -T panel.jpg "<upload_url>" and then verify via storage GET exists.
+    Acceptance (curl corrected — Content-Type is signed, header required on PUT; spec D1):
+        curl -X POST http://localhost:8000/api/v1/media/upload-url -H 'Content-Type: application/json' -d '{"filename":"a.jpg","content_type":"image/jpeg"}'
+        use curl -T panel.jpg -H "Content-Type: image/jpeg" "<upload_url>" and then verify via storage GET exists.
+    Spec + acceptance evidence: specs/2026-07-12_1819_feature_1.2_presigned_upload/
 
 Feature 1.3 — FastAPI wrapper + SSE stream (owner: BE + ML) — 24h
 

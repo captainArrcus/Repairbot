@@ -440,6 +440,8 @@ CREATE TABLE error_codes (
 1. Client requests presigned URL:  POST /api/v1/media/upload-url
    → Returns { "upload_url": "https://s3.../presigned", "media_key": "uuid" }
 2. Client uploads directly to S3:   PUT {upload_url} with binary body
+   (Content-Type header must equal the requested content_type — it is signed;
+    feature_1.2 spec D1)
 3. Client references media_key in turn payload
 ```
 
