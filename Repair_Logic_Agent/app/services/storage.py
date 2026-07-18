@@ -19,6 +19,18 @@ _s3 = boto3.client(
 )
 
 
+def get_object(media_key: str) -> tuple[bytes, str]:
+    """Fetch an uploaded object. Returns (bytes, content_type) — the stored
+    MIME is trustworthy because the presign signs it (Feature 1.2)."""
+    obj = _s3.get_object(Bucket=config.S3_BUCKET, Key=media_key)
+    return obj["Body"].read(), obj.get("ContentType", "")
+
+
+def put_object(key: str, data: bytes, content_type: str) -> None:
+    """Store an agent-generated asset (e.g. annotated image, Feature 2.3)."""
+    _s3.put_object(Bucket=config.S3_BUCKET, Key=key, Body=data, ContentType=content_type)
+
+
 def generate_presigned_put(media_key: str, content_type: str) -> str:
     """URL for a direct client PUT. Object key == media_key (retrieval invariant).
 

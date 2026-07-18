@@ -10,3 +10,6 @@ S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 S3_BUCKET = os.getenv("S3_BUCKET", "repair-media")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+# direct litellm call in dev (like the knowledge spikes); proxy endpoint comes with 2.5
+VISION_MODEL = os.getenv("VISION_MODEL", "gemini/gemini-2.5-flash")

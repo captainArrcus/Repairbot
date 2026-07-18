@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1 and 2.2 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2 and 2.3 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -277,21 +277,29 @@ Feature 2.2 — ErrorCodeLookupTool + KnowledgeRetrievalTool (owner: ML + BE) �
         symptom-only turn → knowledge_retrieval events + candidate-alarm hypotheses, spec D5)
     Spec + acceptance evidence: specs/2026-07-18_1740_feature_2.2_knowledge_tools/
 
-Feature 2.3 — VisionAnalysisTool (owner: ML) — 40h
+Feature 2.3 — VisionAnalysisTool (owner: ML) — 40h — **[DONE 2026-07-18, dev-verified]**
 
     Implement pragmatic pipeline:
         Fetch image from S3 (media_key)
-        Preprocess: autocrop, enhance contrast, rotate deskew
-        OCR via pytesseract (or cloud OCR if needed) to extract numeric/error-code-like strings
-        A small LiteLLM multimodal call to classify control panel (Siemens / Heidenhain / Fanuc) on the image
-        Return: detected_controller, detected_codes[], annotated_images[] (S3 keys or base64), confidence
+        Preprocess: enhance contrast, coarse rotate (best-of-four OCR passes — tesseract OSD
+        bails on panel crops; autocrop/fine deskew deferred until real field photos, spec D2)
+        OCR via pytesseract to extract numeric/error-code-like strings (2.2 extract_codes)
+        Controller classification: OCR keyword heuristic first; the small LiteLLM multimodal
+        call (gemini-2.5-flash) only when OCR sees no brand (spec D3). Brand-level result
+        (SINUMERIK / HEIDENHAIN / FANUC) — exact-family mapping stays the open 2.2-D2 issue.
+        Return: detected_controller, detected_codes[], annotated_images[] (S3 keys), confidence
     File: app/tools/vision_analysis.py
     Function signature:
         def analyze(media_key: str) -> dict
     Acceptance:
-        With test images, detect controller family correctly >= 80% on seed images (measured by tests/vision/test_vision_expectations.py)
+        With test images, detect controller family correctly >= 80% on seed images (measured by
+        tests/vision/test_vision_expectations.py — 6/6 on synthetic seed renders; no real panel
+        photos exist yet, real-photo validation is a field-test runbook item, spec D8)
     Agent integration: when user uploads a photo, agent calls VisionAnalysisTool and streams a tool_call / tool_result event.
+        (verified live: presign-uploaded panel photo → vision_analysis events → detected code
+        walks the 2.2 error_code_lookup fast path → AL 309 hypotheses, spec FINDINGS)
     Forward pointer: annotated_images[] is the seed of the visual-grounding track (Phase 4.2/4.3) — keep the annotation output path (draw → S3 key) reusable.
+    Spec + acceptance evidence: specs/2026-07-18_1759_feature_2.3_vision_analysis/
 
 Feature 2.4 — STT (Whisper) + audio preprocessing (owner: ML + BE) — 24h
 

@@ -11,6 +11,10 @@ this stub now walks both paths of the hybrid knowledge winner — exact
 error-code lookup fast path, full-text candidate search slow path — and streams
 tool_call/tool_result events for each.
 
+Feature 2.3: turns carrying photos run VisionAnalysisTool first; detected codes
+join the candidate codes ahead of the lookup, so a photo of a panel showing
+AL 309 walks the same fast path as typed "AL 309".
+
 The embedded hermes AIAgent replaces these internals in Feature 2.5; the FastAPI
 layer only ever imports this module (Techstack abstraction boundary).
 """
@@ -29,6 +33,7 @@ from app.models.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
+from app.tools import vision_analysis
 from app.tools.error_code_lookup import ErrorCodeLookup
 from app.tools.knowledge_layer import KnowledgeRetrieval
 
@@ -41,6 +46,9 @@ _CONFIDENCE_LADDER = [0.55, 0.25, 0.12, 0.08]
 _MIN_SEARCH_SCORE = 0.1
 
 _EVIDENCE_TYPES = {"photo", "audio", "tactile", "numeric", "text"}
+
+# ponytail: bounded S3/OCR work per turn; the web prototype sends one photo
+_MAX_VISION_IMAGES = 3
 
 
 def create_session(
@@ -129,7 +137,9 @@ def _process_turn(
             (session_id, idx, text, media_keys or [], idempotency_key),
         )
 
-        events, tools_called, question = _scripted_diagnosis(cur, text, machine_context, idx + 1)
+        events, tools_called, question = _scripted_diagnosis(
+            cur, text, media_keys or [], machine_context, idx + 1
+        )
 
         agent_turn_id = cur.execute(
             """INSERT INTO diagnostic_turns
@@ -213,12 +223,19 @@ def _persist_hypotheses(
 
 
 def _scripted_diagnosis(
-    cur, text: str, machine_context: dict | None, agent_turn_index: int
+    cur, text: str, media_keys: list[str], machine_context: dict | None, agent_turn_index: int
 ) -> tuple[list[Event], list[dict], str]:
     """Returns (events, tools_called json, primary question text)."""
-    codes = _candidate_codes(text, machine_context)
     events: list[Event] = []
     tools_called: list[dict] = []
+
+    vision_codes: list[str] = []
+    if media_keys:
+        events.append(ThinkingEvent(content="Analysiere das hochgeladene Foto ..."))
+        for media_key in media_keys[:_MAX_VISION_IMAGES]:
+            vision_codes += _vision_step(media_key, events, tools_called)
+
+    codes = _candidate_codes(text, machine_context, vision_codes)
 
     alarm = None
     if codes:
@@ -340,9 +357,35 @@ def _question_from_alarm(alarm: dict) -> tuple[str, QuestionEvent]:
     )
 
 
-def _candidate_codes(text: str, machine_context: dict | None) -> list[str]:
+def _vision_step(media_key: str, events: list[Event], tools_called: list[dict]) -> list[str]:
+    """Feature 2.3: photo in the turn → vision tool, streamed as tool events.
+    Failures (missing object, audio key, S3 down) become a failure-summary
+    tool_result — a bad photo must never 500 the turn."""
+    args = {"media_key": media_key}
+    events.append(ToolCallEvent(tool="vision_analysis", args=args))
+    try:
+        result = vision_analysis.analyze(media_key)
+        summary = (
+            f"controller: {result['detected_controller'] or 'unbekannt'}, "
+            f"codes: {', '.join(result['detected_codes']) or 'keine'}"
+        )
+        events.append(
+            ToolResultEvent(tool="vision_analysis", result_summary=summary, raw_result=result)
+        )
+    except Exception as exc:
+        result = None
+        summary = f"vision analysis failed: {exc}"
+        events.append(ToolResultEvent(tool="vision_analysis", result_summary=summary))
+    tools_called.append({"tool": "vision_analysis", "args": args, "result_summary": summary})
+    # vision brand is NOT persisted to the session: coarser than a user-provided
+    # family, and first-sighting-wins would lock it in (spec D7) — 2.5 decides
+    return result["detected_codes"] if result else []
+
+
+def _candidate_codes(text: str, machine_context: dict | None, vision_codes: list[str]) -> list[str]:
     codes = []
     if machine_context and machine_context.get("error_code"):
         codes.append(machine_context["error_code"].strip())
     codes += ErrorCodeLookup.extract_codes(text)
+    codes += vision_codes
     return list(dict.fromkeys(codes))
