@@ -200,6 +200,14 @@ CNC machine documentation is a nightmare of entropy:
 
 ### Interface Design
 
+> **Status: implemented (Feature 2.2, 2026-07-18).** `app/tools/knowledge_layer.py`
+> (`KnowledgeRetrieval`) + `app/tools/error_code_lookup.py` (`ErrorCodeLookup`, owns the
+> query-time code normalization). `search_semantic` is Postgres full-text search over the
+> `error_codes` rows (bilingual configs, no new dependency) — embeddings/pgvector deferred
+> until the PDF manual corpus is ingested. `get_page_image`/`get_compiled_article` are
+> honestly empty (no document corpus, no wiki pipeline) per the shootout outcome.
+> See `specs/2026-07-18_1740_feature_2.2_knowledge_tools/`.
+
 The cofounder correctly identified that a single `search(query, top_k)` interface is biased toward RAG. Different knowledge types need different access patterns:
 
 ```python

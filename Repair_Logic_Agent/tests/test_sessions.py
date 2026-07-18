@@ -93,7 +93,7 @@ def test_full_turn_flow_with_error_code():
 
 
 @needs_db
-def test_no_error_code_asks_for_photo():
+def test_no_error_code_and_no_match_asks_for_photo():
     session_id = _create_session(machine_family="cnc_mill")
     resp = client.post(
         f"/api/v1/sessions/{session_id}/turns",
@@ -101,11 +101,29 @@ def test_no_error_code_asks_for_photo():
     )
     turn_id = resp.json()["turn_id"]
     events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
+    # Feature 2.2 slow path: semantic search runs, finds nothing, photo ask remains
+    tool_call = next(e["event_data"] for e in events if e["event_type"] == "tool_call")
+    assert tool_call["tool"] == "knowledge_retrieval"
+    assert "hypothesis" not in [e["event_type"] for e in events]
     question = next(e["event_data"] for e in events if e["event_type"] == "question")
     assert question["evidence_type"] == "photo"
     assert "keinen Fehlercode erkannt" in question["content"]
-    # no code extracted → no pointless lookup with empty candidates
-    assert "tool_call" not in [e["event_type"] for e in events]
+
+
+@needs_db
+def test_symptom_without_code_yields_candidate_hypotheses():
+    session_id = _create_session()
+    resp = client.post(
+        f"/api/v1/sessions/{session_id}/turns",
+        json={"text": "Die Spindel erreicht die Drehzahl nicht"},
+    )
+    turn_id = resp.json()["turn_id"]
+    events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
+    tool_call = next(e["event_data"] for e in events if e["event_type"] == "tool_call")
+    assert tool_call["tool"] == "knowledge_retrieval"
+    hypotheses = [e["event_data"] for e in events if e["event_type"] == "hypothesis"]
+    assert hypotheses[0]["description"].startswith("AL 500")  # top FTS candidate
+    assert "question" in [e["event_type"] for e in events]
 
 
 @needs_db

@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4 and 2.1 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1 and 2.2 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -253,18 +253,29 @@ Feature 2.1 — Data Bridge completion & export (owner: BE) — 24h — **[DONE 
         Run session in dev -> GET export → JSON validates against training schema (tests/traces/test_export_schema.py)
     Spec + acceptance evidence: specs/2026-07-12_2212_feature_2.1_data_bridge_export/
 
-Feature 2.2 — ErrorCodeLookupTool + KnowledgeRetrievalTool (owner: ML + BE) — 24h
+Feature 2.2 — ErrorCodeLookupTool + KnowledgeRetrievalTool (owner: ML + BE) — 24h — **[DONE 2026-07-18]**
 
     ErrorCodeLookupTool:
-        Implements exact lookup in SQL table error_codes(controller_family, code) -> returns structured fields: code, meaning, manual_section_id, spare_part_refs, confidence=1.0
+        Implements exact lookup in SQL table error_codes(controller_family, code) -> returns the
+        full error_codes row incl. manual_reference + spare_part_refs, confidence=1.0
+        (column is manual_reference, not manual_section_id — 1.1 DDL; spec D2)
+        Query-time normalization lives here (Techstack): "al-309"/"AL309"/"309" → "AL 309",
+        "f 07011" → "F07011"; controller_family=None searches all families (spec D2)
         File: app/tools/error_code_lookup.py (class ErrorCodeLookup)
         Function signature:
-            def lookup(controller_family: str, code: str) -> Optional[dict]
+            def lookup(controller_family: str | None, code: str) -> Optional[dict]
     KnowledgeRetrievalTool:
         Interface per KnowledgeLayer Protocol: search_semantic, lookup_error_code, get_page_image, get_compiled_article
-        File: app/tools/knowledge_layer.py
+        File: app/tools/knowledge_layer.py (class KnowledgeRetrieval)
+        search_semantic = Postgres full-text search over error_codes, german+english configs,
+        no new dependency (spec D3 — embeddings deferred until the PDF corpus lands);
+        get_page_image raises / get_compiled_article returns None until a document corpus /
+        wiki pipeline exists (spec D4)
     Acceptance:
         Agent can call both tools and incorporate tool_result events into event stream.
+        (verified live: exact-code turn → error_code_lookup events + cause hypotheses;
+        symptom-only turn → knowledge_retrieval events + candidate-alarm hypotheses, spec D5)
+    Spec + acceptance evidence: specs/2026-07-18_1740_feature_2.2_knowledge_tools/
 
 Feature 2.3 — VisionAnalysisTool (owner: ML) — 40h
 

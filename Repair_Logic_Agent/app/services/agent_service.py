@@ -6,11 +6,14 @@ probable_causes, one discriminating question. Steps become typed events
 (app/models/events.py) persisted to diagnostic_turn_events BEFORE anything is
 streamed (spec 1.3 D3).
 
+Feature 2.2: the inline lookup moved into the real tool modules (app/tools/);
+this stub now walks both paths of the hybrid knowledge winner — exact
+error-code lookup fast path, full-text candidate search slow path — and streams
+tool_call/tool_result events for each.
+
 The embedded hermes AIAgent replaces these internals in Feature 2.5; the FastAPI
 layer only ever imports this module (Techstack abstraction boundary).
 """
-
-import re
 
 from psycopg import errors
 from psycopg.rows import dict_row
@@ -26,14 +29,16 @@ from app.models.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
-
-# ponytail: catches the seeded formats ("AL 309", "F07011", bare "10720", bare "309");
-# real prefix/whitespace/case normalization is the ErrorCodeLookupTool's job (Feature 2.2)
-_CODE_RE = re.compile(r"\b(?:AL[\s-]?\d{3,6}|F\d{4,6}|\d{3,6})\b", re.IGNORECASE)
+from app.tools.error_code_lookup import ErrorCodeLookup
+from app.tools.knowledge_layer import KnowledgeRetrieval
 
 # ponytail: fabricated confidence ladder for the stub's ranked hypotheses;
 # real confidences come from the agent (Feature 2.5)
 _CONFIDENCE_LADDER = [0.55, 0.25, 0.12, 0.08]
+
+# ponytail: stand-in for the LLM judging candidate relevance (Feature 2.5) —
+# drops FTS noise matches (real hits score ~1.0, noise ~0.04 on the seed corpus)
+_MIN_SEARCH_SCORE = 0.1
 
 _EVIDENCE_TYPES = {"photo", "audio", "tactile", "numeric", "text"}
 
@@ -211,46 +216,39 @@ def _scripted_diagnosis(
     cur, text: str, machine_context: dict | None, agent_turn_index: int
 ) -> tuple[list[Event], list[dict], str]:
     """Returns (events, tools_called json, primary question text)."""
-    candidates = _extract_candidates(text, machine_context)
+    codes = _candidate_codes(text, machine_context)
+    events: list[Event] = []
+    tools_called: list[dict] = []
 
-    if not candidates:
-        # no code in the message — a lookup with nothing to look up is just noise
-        question = (
-            "Ich habe in Ihrer Nachricht keinen Fehlercode erkannt. Nennen Sie bitte den "
-            "Fehlercode vom Bedienfeld (z. B. AL 309) oder machen Sie ein Foto der "
-            "angezeigten Fehlermeldung."
-        )
-        events = [
-            ThinkingEvent(content="Kein Fehlercode in der Meldung erkannt."),
-            QuestionEvent(
-                content=question, evidence_type="photo", required_format="image_of_panel"
-            ),
-            DoneEvent(status="awaiting_user_input"),
-        ]
-        return events, [], question
-
-    events: list[Event] = [
-        ThinkingEvent(content=f"Suche Fehlercode in der Meldung: {', '.join(candidates)} ..."),
-        ToolCallEvent(tool="error_code_lookup", args={"candidates": candidates}),
-    ]
-
-    alarm = _lookup(cur, candidates)
-    if alarm is None:
-        summary = "no exact match in error_codes"
-        events.append(ToolResultEvent(tool="error_code_lookup", result_summary=summary))
-        question = (
-            f"Der Fehlercode „{candidates[0]}“ ist noch nicht in unserer Datenbank. "
-            "Bitte machen Sie ein Foto des Bedienfelds mit der angezeigten Fehlermeldung, "
-            "damit wir den Code prüfen können."
-        )
+    alarm = None
+    if codes:
         events.append(
-            QuestionEvent(content=question, evidence_type="photo", required_format="image_of_panel")
+            ThinkingEvent(content=f"Suche Fehlercode in der Meldung: {', '.join(codes)} ...")
+        )
+        events.append(ToolCallEvent(tool="error_code_lookup", args={"codes": codes}))
+        tool = ErrorCodeLookup(cur.connection)
+        # family filter deliberately None: family-string variants would false-negative (spec D2)
+        alarm = next((a for c in codes if (a := tool.lookup(None, c))), None)
+        if alarm:
+            summary = f"exact match: {alarm['code']} ({alarm['controller_family']})"
+            events.append(
+                ToolResultEvent(tool="error_code_lookup", result_summary=summary, raw_result=alarm)
+            )
+        else:
+            summary = "no exact match in error_codes"
+            events.append(ToolResultEvent(tool="error_code_lookup", result_summary=summary))
+        tools_called.append(
+            {"tool": "error_code_lookup", "args": {"codes": codes}, "result_summary": summary}
         )
     else:
-        summary = f"exact match: {alarm['code']} ({alarm['controller_family']})"
         events.append(
-            ToolResultEvent(tool="error_code_lookup", result_summary=summary, raw_result=alarm)
+            ThinkingEvent(
+                content="Kein Fehlercode in der Meldung erkannt — suche in der Wissensbasis "
+                "nach der Symptombeschreibung."
+            )
         )
+
+    if alarm:
         causes = alarm["probable_causes"][: len(_CONFIDENCE_LADDER)]
         events.extend(
             HypothesisEvent(
@@ -263,12 +261,72 @@ def _scripted_diagnosis(
         )
         question, q_event = _question_from_alarm(alarm)
         events.append(q_event)
+    else:
+        question = _semantic_fallback(cur, text, codes, events, tools_called, agent_turn_index)
 
     events.append(DoneEvent(status="awaiting_user_input"))
-    tools_called = [
-        {"tool": "error_code_lookup", "args": {"candidates": candidates}, "result_summary": summary}
-    ]
     return events, tools_called, question
+
+
+def _semantic_fallback(
+    cur,
+    text: str,
+    codes: list[str],
+    events: list[Event],
+    tools_called: list[dict],
+    agent_turn_index: int,
+) -> str:
+    """Hybrid slow path (spec D5): no exact code hit -> full-text candidate search;
+    hits become candidate-alarm hypotheses, zero hits fall back to the photo ask."""
+    results = []
+    if text and text.strip():
+        args = {"query": text, "top_k": len(_CONFIDENCE_LADDER)}
+        events.append(ToolCallEvent(tool="knowledge_retrieval", args=args))
+        results = KnowledgeRetrieval(cur.connection).search_semantic(text, top_k=args["top_k"])
+        results = [r for r in results if r["score"] >= _MIN_SEARCH_SCORE]
+        found = ", ".join(r["code"] for r in results) or "none"
+        summary = f"{len(results)} confident candidate alarms via full-text search: {found}"
+        events.append(
+            ToolResultEvent(
+                tool="knowledge_retrieval",
+                result_summary=summary,
+                raw_result={"results": results},
+            )
+        )
+        tools_called.append(
+            {"tool": "knowledge_retrieval", "args": args, "result_summary": summary}
+        )
+
+    if results:
+        events.extend(
+            HypothesisEvent(
+                hypothesis_id=f"h{i + 1}",
+                description=f"{r['code']}: {r['message_de'] or r['message_en'] or ''}",
+                confidence=_CONFIDENCE_LADDER[i],
+                introduced_at_turn=agent_turn_index,
+            )
+            for i, r in enumerate(results)
+        )
+        question, q_event = _question_from_alarm(results[0])
+        events.append(q_event)
+        return question
+
+    if codes:
+        question = (
+            f"Der Fehlercode „{codes[0]}“ ist noch nicht in unserer Datenbank. "
+            "Bitte machen Sie ein Foto des Bedienfelds mit der angezeigten Fehlermeldung, "
+            "damit wir den Code prüfen können."
+        )
+    else:
+        question = (
+            "Ich habe in Ihrer Nachricht keinen Fehlercode erkannt. Nennen Sie bitte den "
+            "Fehlercode vom Bedienfeld (z. B. AL 309) oder machen Sie ein Foto der "
+            "angezeigten Fehlermeldung."
+        )
+    events.append(
+        QuestionEvent(content=question, evidence_type="photo", required_format="image_of_panel")
+    )
+    return question
 
 
 def _question_from_alarm(alarm: dict) -> tuple[str, QuestionEvent]:
@@ -282,26 +340,9 @@ def _question_from_alarm(alarm: dict) -> tuple[str, QuestionEvent]:
     )
 
 
-def _extract_candidates(text: str, machine_context: dict | None) -> list[str]:
-    raw = []
+def _candidate_codes(text: str, machine_context: dict | None) -> list[str]:
+    codes = []
     if machine_context and machine_context.get("error_code"):
-        raw.append(machine_context["error_code"])
-    raw += _CODE_RE.findall(text or "")
-    normalized = []
-    for c in raw:
-        c = c.strip()
-        normalized += [c, c.upper(), re.sub(r"(?i)^al[\s-]*", "AL ", c).upper()]
-        if c.isdigit():
-            normalized.append(f"AL {c}")  # bare number — seeded AL codes store the prefix
-    return list(dict.fromkeys(normalized))
-
-
-def _lookup(cur, candidates: list[str]) -> dict | None:
-    if not candidates:
-        return None
-    return cur.execute(
-        """SELECT code, controller_family, message_de, message_en, probable_causes,
-                  discriminating_questions, manual_reference
-           FROM error_codes WHERE code = ANY(%s) LIMIT 1""",
-        (candidates,),
-    ).fetchone()
+        codes.append(machine_context["error_code"].strip())
+    codes += ErrorCodeLookup.extract_codes(text)
+    return list(dict.fromkeys(codes))
