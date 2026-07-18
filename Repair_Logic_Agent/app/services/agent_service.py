@@ -140,7 +140,71 @@ def _process_turn(
                 (agent_turn_id, i, ev.type, Jsonb(ev.model_dump(exclude_none=True))),
             )
 
+        _persist_hypotheses(
+            cur,
+            session_id,
+            agent_turn_id,
+            idx + 1,
+            [ev for ev in events if isinstance(ev, HypothesisEvent)],
+            evidence_text=text,
+            evidence_media_ref=media_keys[0] if media_keys else None,
+        )
+
         return str(agent_turn_id)
+
+
+def _persist_hypotheses(
+    cur,
+    session_id: str,
+    agent_turn_id,
+    agent_turn_index: int,
+    hypothesis_events: list[HypothesisEvent],
+    evidence_text: str,
+    evidence_media_ref: str | None,
+) -> None:
+    """Feature 2.1 (spec D2): mirror hypothesis events into their first-class tables.
+
+    Upsert by (session_id, description): new description → hypotheses row;
+    changed confidence → hypothesis_updates row + confidence update.
+    """
+    # ponytail: SELECT-then-INSERT — single writer per turn transaction; add a
+    # unique index when concurrent writers exist (Feature 2.5)
+    for ev in hypothesis_events:
+        row = cur.execute(
+            "SELECT id, confidence FROM hypotheses WHERE session_id = %s AND description = %s",
+            (session_id, ev.description),
+        ).fetchone()
+        if row is None:
+            cur.execute(
+                """INSERT INTO hypotheses
+                   (session_id, introduced_at_turn, description, confidence)
+                   VALUES (%s, %s, %s, %s)""",
+                (session_id, ev.introduced_at_turn, ev.description, ev.confidence),
+            )
+        elif row["confidence"] != ev.confidence:
+            cur.execute(
+                """INSERT INTO hypothesis_updates
+                   (hypothesis_id, turn_id, confidence_before, confidence_after,
+                    evidence_text, evidence_media_ref)
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (
+                    row["id"],
+                    agent_turn_id,
+                    row["confidence"],
+                    ev.confidence,
+                    evidence_text,
+                    evidence_media_ref,
+                ),
+            )
+            cur.execute(
+                "UPDATE hypotheses SET confidence = %s WHERE id = %s", (ev.confidence, row["id"])
+            )
+        if ev.eliminated and row is not None:
+            cur.execute(
+                """UPDATE hypotheses SET eliminated_at_turn = COALESCE(eliminated_at_turn, %s)
+                   WHERE id = %s""",
+                (agent_turn_index, row["id"]),
+            )
 
 
 def _scripted_diagnosis(

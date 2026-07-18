@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3 and 1.4 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4 and 2.1 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -227,10 +227,15 @@ Feature 1.4 — Dirty web prototype (owner: FE) — 24h — **[DONE 2026-07-12, 
 PHASE 2 — Foundation & App (Weeks 5–8)
 Focus: productionize the core pipeline, add audio, structured traces, guardrails (tool allowlist, egress isolation, tenant isolation), learning pipeline, and build native app.
 
-Feature 2.1 — Data Bridge completion & export (owner: BE) — 24h
+Feature 2.1 — Data Bridge completion & export (owner: BE) — 24h — **[DONE 2026-07-12, dev-verified]**
 
     Implement full session persistence:
         diagnostic_sessions, diagnostic_turns, hypotheses, hypothesis_updates, diagnostic_turn_events, session_outcomes tables with SQL migrations
+        (tables shipped in Feature 1.1 migration 001 — no new migration; spec D1.
+        hypotheses/hypothesis_updates written by agent_service at event time; spec D2)
+    Outcome write path (added, not in original Roadmap — spec D3, user-ratified):
+        POST /api/v1/sessions/{id}/outcome → upserts session_outcomes, sets
+        diagnostic_sessions.status, resolves/creates the final-diagnosis hypothesis
     Implement export endpoint:
         GET /api/v1/sessions/{id}/export → returns training-ready JSON:
         {
@@ -246,6 +251,7 @@ Feature 2.1 — Data Bridge completion & export (owner: BE) — 24h
         app/api/sessions.py (add export route)
     Acceptance:
         Run session in dev -> GET export → JSON validates against training schema (tests/traces/test_export_schema.py)
+    Spec + acceptance evidence: specs/2026-07-12_2212_feature_2.1_data_bridge_export/
 
 Feature 2.2 — ErrorCodeLookupTool + KnowledgeRetrievalTool (owner: ML + BE) — 24h
 
@@ -274,6 +280,7 @@ Feature 2.3 — VisionAnalysisTool (owner: ML) — 40h
     Acceptance:
         With test images, detect controller family correctly >= 80% on seed images (measured by tests/vision/test_vision_expectations.py)
     Agent integration: when user uploads a photo, agent calls VisionAnalysisTool and streams a tool_call / tool_result event.
+    Forward pointer: annotated_images[] is the seed of the visual-grounding track (Phase 4.2/4.3) — keep the annotation output path (draw → S3 key) reusable.
 
 Feature 2.4 — STT (Whisper) + audio preprocessing (owner: ML + BE) — 24h
 
@@ -385,6 +392,27 @@ Feature 3.3 — Pilot onboarding & monitoring (owner: PM + QA) — 40h
         monitoring: Langfuse traces per session, dashboard of metrics (diagnostic time, turns/session, top3 accuracy sample)
     Acceptance:
         2–3 technicians run 10 sessions each; PM collects usage and feedback; QA calculates diagnostic time delta vs baseline.
+
+PHASE 4 — Visual Grounding & Generalization (post-MVP, NOT scheduled)
+Strategic directions ratified 2026-07-18. Nothing here starts before Phase 3 acceptance; listed so Phases 1–3 don't paint us into a corner.
+Prototype provenance: https://github.com/edavidk7/zurich_physical_hack ("DocOps", IBM Docling Challenge) — Docling-parsed datasheets/SOPs → Gemini agents (DocumentSearcher + TaskPlanner) → camera-calibrated SO-ARM100 arm with multimeter probe physically probing an Arduino board. Transferable assets: Docling schematic/figure parsing, keypoint detection on the physical object (find_board_keypoints.py), camera calibration + pose estimation mapping documentation coordinates onto the real world. The robot arm is replaced by the technician's smartphone camera.
+
+Feature 4.1 — Machine knowledge packs: generalize beyond CNC (owner: BE + ML)
+
+    Extract everything CNC-specific (error_codes seed data, fault taxonomy, prompt context, golden cases, doc corpus refs) into a versioned knowledge-pack format; a second machine family proves the interface.
+    Schema already keys by machine_family/controller_family — no migration expected; this is packaging discipline, not re-architecture.
+    Acceptance: a non-CNC pilot machine family runs an end-to-end diagnosis with zero core-code change — only a new pack.
+
+Feature 4.2 — Image annotation v1: augment the user's photos (owner: ML)
+
+    Extend VisionAnalysisTool annotated_images[] (Feature 2.3) from OCR boxes to guidance overlays: arrows, circles, part outlines drawn on the user's own photo, driven by agent output ("mark the coolant valve").
+    Implementation: Pillow/OpenCV drawing server-side, result to S3, guidance event gains optional annotated_media_key.
+    Acceptance: agent answers "where is X?" with the user's own photo, X highlighted; technician-rated usefulness in pilot.
+
+Feature 4.3 — Schematic-to-photo grounding: point to the problem (owner: ML)
+
+    Parse schematics/exploded views (docling — already in the stack), match diagram to user photo via keypoint detection + pose estimation (port the prototype's find_board_keypoints/pose_estimation approach, minus calibration targets — single-photo homography, degrade gracefully to "no grounding, text only"), project the fault/part location from diagram onto photo.
+    Acceptance: golden set of (diagram, photo, target part) triples; projected marker lands on the correct part ≥80%.
 
 Cross-cutting features (must be done early)
 

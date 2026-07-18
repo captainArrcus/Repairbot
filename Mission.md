@@ -107,6 +107,10 @@ These three families define our initial error code universe, documentation corpu
 > [!IMPORTANT]
 > We do **not** attempt to cover "all industrial machines." Phase 1 is CNC only. Breadth comes from depth — a system that's excellent on one machine family earns the trust to expand.
 
+### Vertical ≠ Architecture
+
+The long-term product diagnoses **any machine the user points it at** — CNC lathe, conveyor, pump, or Arduino board. Phase 1 scopes the *knowledge*, not the *design*: everything machine-specific (error-code seeds, fault taxonomy, documentation corpus, prompt context, golden cases) lives in a swappable **machine knowledge pack**; the diagnostic loop, API contract, Data Bridge, and learning pipeline stay machine-agnostic. Adding vertical #2 must mean adding a knowledge pack — never touching the core. (Schema is already keyed by `machine_family`/`controller_family`; see Roadmap Feature 4.1.)
+
 ---
 
 ## Success Metric
@@ -157,6 +161,18 @@ One customer's solved fault pattern becomes — after curation — every custome
 
 ---
 
+## Future Core Competence: Visual Grounding
+
+Proven in our earlier prototype [zurich_physical_hack](https://github.com/edavidk7/zurich_physical_hack) (Arduino-board diagnosis, IBM Docling Challenge): the system parses technical documentation — schematics, datasheets, SOPs — and **points to the exact spot in the physical world**, there via a camera-calibrated robot arm with a multimeter probe. In RepairRöpi the pointer is not a robot arm but the technician's smartphone camera:
+
+1. **Understand the sketch** — parse schematics, exploded views, wiring diagrams from the manual (Docling — same parser the prototype used).
+2. **Ground it in the photo** — match the diagram against the user's photo of the real machine (keypoint detection, pose estimation — ported from the prototype's vision pipeline).
+3. **Point and augment** — return the technician's own image with guidance drawn on it: arrows, highlights, part outlines projected from the schematic onto reality. *"The bearing you need is HERE."*
+
+Augmented images are language-agnostic guidance — a highlighted photo needs no translation (~30% of our users have a migration background). The capability phases in: simple photo annotations first (VisionAnalysisTool, Phase 2), full schematic-to-photo grounding later (Roadmap Phase 4).
+
+---
+
 ## Explicit Non-Goals (Phase 1)
 
 These are things we **will not build** in Phase 1, regardless of how tempting they are:
@@ -167,7 +183,7 @@ These are things we **will not build** in Phase 1, regardless of how tempting th
 | Knowledge graphs (Memgraph) | Premature optimization; flat vector/document store is sufficient |
 | Multi-agent orchestration | Single monolithic agent core with tools (hermes supports subagents — we don't use them); refactor when complexity demands it |
 | Messaging channels (WhatsApp/Telegram via hermes gateway) | Validated option (relay-connector contract exists), deferred to Phase 3+; the app's structured evidence capture (typed hypotheses, camera control) is the product |
-| AR overlays (RealWear, Vision Pro) | Hardware dependency; smartphone camera is universally available |
+| AR overlays (RealWear, Vision Pro) | Hardware dependency; smartphone camera is universally available. Annotated still images (visual grounding, Phase 4) are **not** AR — no headset, no live tracking |
 | Predictive maintenance / sensor fusion | Different product; we solve *reactive* repair first |
 | Offline-first architecture | Modern factories have connectivity; validate online-first before engineering offline |
 | CMMS/ERP integration | Integration work that doesn't prove the core thesis |
@@ -187,4 +203,4 @@ The API contract between them is the most critical specification. The frontend m
 
 ---
 
-*Stand: Juli 2026 — updated for hermes-agent backbone (Techstack v3)*
+*Stand: Juli 2026 — updated for hermes-agent backbone (Techstack v3); strategic directions added 2026-07-18: machine-agnostic core, visual grounding, image augmentation*

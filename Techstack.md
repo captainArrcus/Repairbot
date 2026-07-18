@@ -233,6 +233,25 @@ We'll evaluate this alongside classic RAG and VLM in the Phase 0 spike.
 
 ---
 
+## Visual Grounding & Image Augmentation (Phase 4+ track — decision record)
+
+> Strategic direction (2026-07-18): understanding technical sketches and pointing to the problem **in the real world** becomes a core competence. Prototype provenance: [zurich_physical_hack](https://github.com/edavidk7/zurich_physical_hack) — Docling-parsed datasheets → Gemini agents → camera-calibrated SO-ARM100 arm probing an Arduino board. The robot arm is out; the grounding pipeline is the transferable asset.
+
+| Concern | Prototype component | RepairRöpi equivalent |
+|---|---|---|
+| Sketch/schematic understanding | Docling parsing (layout, tables, figures) | Same — `docling` already a core dependency |
+| Locating features on the physical object | `find_board_keypoints.py`, `pose_estimation.py`, ArUco/checkerboard calibration | OpenCV keypoint matching diagram ↔ photo; no calibration targets on a factory floor — single-photo homography, degrade gracefully to text-only |
+| Pointing in the real world | 6-DOF arm + multimeter probe | Guidance overlay drawn on the technician's own photo (Pillow/OpenCV, server-side → S3, `annotated_media_key` on guidance events); live camera overlay later |
+| Task planning from docs | Gemini TaskPlanner agent | Already covered: hermes agent + `guidance` events |
+
+**Phasing:** Feature 2.3 (VisionAnalysisTool) already returns `annotated_images[]` — that output path is the seed. Phase 4.2 turns it into guidance overlays; Phase 4.3 adds schematic-to-photo projection (Roadmap Phase 4).
+
+**New dependency when the track starts:** `opencv-python`. Nothing added now.
+
+**Machine-agnostic invariant:** the knowledge layer, session schema (`machine_family`/`controller_family`) and tool interfaces are vertical-neutral. Verticals ship as **machine knowledge packs** (error-code seeds, taxonomy, corpus, prompts, golden cases — Roadmap Feature 4.1); the core never learns what a "CNC" is beyond its pack.
+
+---
+
 ## Language & Localization
 
 ### The Reality
@@ -678,4 +697,4 @@ Before this document becomes binding:
 
 ---
 
-*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline*
+*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added*

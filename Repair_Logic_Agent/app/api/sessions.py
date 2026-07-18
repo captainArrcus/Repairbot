@@ -8,6 +8,7 @@ stream endpoint is a DB replay + polling tail; Last-Event-ID resume comes free
 
 import json
 from collections.abc import AsyncIterator
+from typing import Literal
 from uuid import UUID
 
 import anyio
@@ -16,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import db
-from app.services import agent_service
+from app.services import agent_service, traces
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -50,6 +51,15 @@ class TurnResponse(BaseModel):
     turn_id: str
 
 
+class OutcomeRequest(BaseModel):
+    outcome: Literal["resolved", "escalated", "failed"]
+    final_diagnosis: str | None = None
+    repair_action: str | None = None
+    verification_media_ref: str | None = None
+    resolution_time_minutes: int | None = None
+    technician_confidence: int | None = Field(None, ge=1, le=5)
+
+
 @router.post("")
 def create_session(req: CreateSessionRequest | None = None) -> CreateSessionResponse:
     req = req or CreateSessionRequest()
@@ -72,6 +82,25 @@ def submit_turn(session_id: UUID, req: TurnRequest) -> TurnResponse:
     except KeyError:
         raise HTTPException(404, "session not found") from None
     return TurnResponse(turn_id=turn_id)
+
+
+@router.post("/{session_id}/outcome")
+def record_outcome(session_id: UUID, req: OutcomeRequest) -> dict:
+    # Feature 2.1 (spec D3): the session's training label
+    try:
+        traces.record_outcome(str(session_id), **req.model_dump())
+    except KeyError:
+        raise HTTPException(404, "session not found") from None
+    return {"status": req.outcome}
+
+
+@router.get("/{session_id}/export")
+def export_session(session_id: UUID) -> traces.SessionExport:
+    # Feature 2.1: training-ready trace (Roadmap export JSON)
+    try:
+        return traces.assemble_export(str(session_id))
+    except KeyError:
+        raise HTTPException(404, "session not found") from None
 
 
 @router.get("/{session_id}/stream")
