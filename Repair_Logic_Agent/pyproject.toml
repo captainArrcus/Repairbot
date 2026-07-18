@@ -20,6 +20,7 @@ dependencies = [
     "pytesseract",
     "openai-whisper",
     "noisereduce",
+    "ddgs",
 ]
 
 [dependency-groups]

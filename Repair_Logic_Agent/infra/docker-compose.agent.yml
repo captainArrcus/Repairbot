@@ -1,0 +1,32 @@
+# Feature 2.5 (spec D8) — dual-network egress isolation for the hermes worker,
+# per hermes docs/security/network-egress-isolation.md: the worker container
+# runs ONLY on the internal network (no default route); the squid proxy is the
+# single way out and allowlists the LLM endpoint domains.
+#
+#   docker compose -f infra/docker-compose.agent.yml up -d egress-proxy
+#   docker compose -f infra/docker-compose.agent.yml build agent-worker
+#   AGENT_RUNNER=docker uvicorn app.main:app   # workers now spawn isolated
+name: repair-agent
+
+networks:
+  internal:
+    internal: true
+  egress: {}
+
+services:
+  egress-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    networks: [internal, egress]
+    volumes:
+      - ./egress/squid.conf:/etc/squid/squid.conf:ro
+
+  # image definition only — the backend launches workers itself via
+  # `docker run -i --network repair-agent_internal` (stdio RPC, spec D1/D2)
+  agent-worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.agent
+    image: repair-agent-worker
+    profiles: [build-only]
+    networks: [internal]

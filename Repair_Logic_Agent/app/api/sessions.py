@@ -8,16 +8,17 @@ stream endpoint is a DB replay + polling tail; Last-Event-ID resume comes free
 
 import json
 from collections.abc import AsyncIterator
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 import anyio
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import db
 from app.services import agent_service, traces
+from app.services.hermes_backend import AgentBusyError
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -61,10 +62,13 @@ class OutcomeRequest(BaseModel):
 
 
 @router.post("")
-def create_session(req: CreateSessionRequest | None = None) -> CreateSessionResponse:
+def create_session(
+    req: CreateSessionRequest | None = None,
+    x_tenant_id: Annotated[str, Header()] = "dev",  # auth fills this later (spec 2.5 D6)
+) -> CreateSessionResponse:
     req = req or CreateSessionRequest()
     session_id = agent_service.create_session(
-        req.machine_family, req.controller_family, req.metadata
+        req.machine_family, req.controller_family, req.metadata, tenant_id=x_tenant_id
     )
     return CreateSessionResponse(session_id=session_id)
 
@@ -81,6 +85,12 @@ def submit_turn(session_id: UUID, req: TurnRequest) -> TurnResponse:
         )
     except KeyError:
         raise HTTPException(404, "session not found") from None
+    except ValueError as exc:  # media key outside the session's tenant (spec 2.5 D6)
+        raise HTTPException(422, str(exc)) from None
+    except AgentBusyError:
+        raise HTTPException(409, "a turn for this session is already running") from None
+    except RuntimeError as exc:  # worker failed to start / allowlist breach — fail safe
+        raise HTTPException(503, f"agent backend unavailable: {exc}") from None
     return TurnResponse(turn_id=turn_id)
 
 

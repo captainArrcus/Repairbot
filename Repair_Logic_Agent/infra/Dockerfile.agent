@@ -1,0 +1,12 @@
+# Feature 2.5 (spec D8): egress-isolated hermes worker image.
+# The worker holds no DB/S3 credentials and no app deps (tool RPC runs
+# parent-side, spec D2) — this image is hermes + python, nothing else.
+# agents/hermes_worker.py is bind-mounted at run time, not baked in.
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+# pinned commit — keep in sync with agents/requirements_agents.txt
+RUN pip install --no-cache-dir \
+    "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@4281151ae859241351ba14d8c7682dc67ff4c126"

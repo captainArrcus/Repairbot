@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3 and 2.4 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -137,8 +137,8 @@ Feature 1.2 — Presigned upload endpoint (owner: BE) — 8h — **[DONE 2026-07
         content_type allowlisted to image/* and audio/* (422 otherwise); filename/purpose
         accepted but not persisted yet (spec D2/D3)
     Response JSON: { "upload_url": "...", "media_key": "uuid" }
-        object key == media_key (retrieval invariant for vision/STT); tenant prefix moves
-        into media_key with Feature 2.5
+        object key == media_key (retrieval invariant for vision/STT); since Feature 2.5
+        media_key = "<tenant>/<uuid>" (X-Tenant-Id header, spec 2.5 D6)
     Implementation files:
         app/api/media.py → function create_presigned_upload()
         app/services/storage.py → function generate_presigned_put(media_key, content_type)
@@ -324,32 +324,45 @@ Feature 2.4 — STT (Whisper) + audio preprocessing (owner: ML + BE) — 24h —
         tests/stt/test_transcribe_sample.py
     Spec + acceptance evidence: specs/2026-07-18_1825_feature_2.4_stt/
 
-Feature 2.5 — AgentService: embedded hermes AIAgent + guardrails + Pydantic step enforcement (owner: ML + BE) — 40h
+Feature 2.5 — AgentService: embedded hermes AIAgent + guardrails + Pydantic step enforcement (owner: ML + BE) — 40h — **[DONE 2026-07-18, live-verified incl. egress-isolated docker run]**
 
-    Implement or refine app/services/agent_service.py with:
-        AgentService.start_session(session_id, tenant_id)
-        AgentService.push_turn(session_id, turn_payload)
-        AgentService.stream_events(session_id) → generator used by SSE endpoint
-    Key points:
-        Embed run_agent.AIAgent (hermes-agent, pinned commit) — productionize the Feature 0.2 spike
-        Tool allowlist: the 4 domain tools (vision, error-code lookup, knowledge retrieval,
-        web search) + hermes' 4 learning-loop tools (memory, skills_list, skill_view,
-        skill_manage — required for the learning loop, Feature 0.2 finding, ratified).
-        No terminal, no browser, no MCP, no subagents — never registered.
-        Per-tenant HERMES_HOME (memory/skills/session cache); Postgres stays source of truth
-        Event mapper converts the hermes stream to our Pydantic events
-        Validate each event against app/models/events.py; if invalid, agent_service synthesizes a
-        sanitized event and logs a Langfuse error — raw output is never forwarded
-        guidance events with safety_level=high require explicit user confirmation before the
-        agent streams follow-up steps (physical-safety approval gate)
-    Acceptance:
-        Events are persisted to diagnostic_turn_events, SSE streams valid typed events,
-        cross-tenant test: two parallel sessions with different tenant_ids show zero state bleed.
-    Safety:
-        Egress isolation per hermes docs/security/network-egress-isolation.md: agent container on
-        an internal Docker network with no default route; egress proxy allowlists only LLM
-        endpoints, S3 and Langfuse. Verified by a test that curls a non-allowlisted host from
-        inside the container and fails.
+    Implemented in app/services/agent_service.py (turn shell, both backends) +
+    app/services/hermes_backend.py (worker mgmt, RPC, validation) + agents/hermes_worker.py
+    (runs in .venv-hermes — the two-venv reality makes the agent a worker PROCESS per
+    session, JSONL over stdio; spec 2.5 D1). stream_events stays the SSE DB-tail in the
+    API layer (HTTP-lifecycle-bound; spec D10) — agent_service owns production/persistence,
+    now committed per event so SSE streams mid-turn.
+    Key points (as built):
+        Embed run_agent.AIAgent (hermes-agent, pinned commit) — productionized 0.2 spike
+        Domain tools execute PARENT-side via stdio RPC (spec D2): the agent process holds
+        no DB/S3 credentials; its only egress need is the LLM endpoint (+ models.dev)
+        Tool allowlist: 4 domain tools (vision_analysis, error_code_lookup,
+        knowledge_retrieval, repair_web_search — renamed, hermes name-gates its own
+        "web_search" by config, spec FINDINGS #1) + hermes' 4 learning-loop tools
+        (memory, skills_list, skill_view, skill_manage — 0.2 finding, ratified).
+        No terminal, no browser, no MCP, no subagents — never registered; the worker
+        asserts the exposed set and the parent verifies the handshake (breach → 503).
+        Per-tenant HERMES_HOME + tenant CWD (trajectories); Postgres stays source of truth;
+        tenant via X-Tenant-Id header (default "dev") until auth; media_key tenant-prefixed
+        Parent-side Pydantic validation; invalid output sanitized + Langfuse error
+        (app/services/observability.py) — raw output never forwarded
+        guidance safety_level=high gates follow-up steps (suppressed + logged) until the
+        technician's confirming turn
+        Scripted 1.3 diagnostician KEPT as deterministic backend (AGENT_BACKEND=scripted
+        default — CI/golden-harness mock, spec D7); dev opts in via AGENT_BACKEND=hermes
+        LiteLLM proxy deferred to 3.1 (direct endpoint + env swap, user-ratified spec D11)
+    Acceptance (all verified — spec FINDINGS):
+        Events persisted to diagnostic_turn_events, SSE streams valid typed events (live
+        3-turn AL-309 session: exact-hit → hypotheses → elimination → diagnosis 0.95 →
+        high-safety LOTO guidance), cross-tenant parallel zero-bleed test green.
+    Safety (as built):
+        Egress isolation per hermes docs/security/network-egress-isolation.md:
+        infra/docker-compose.agent.yml — worker container on an internal network (no
+        default route), squid proxy allowlists ONLY LLM endpoint domains + models.dev
+        (S3/Langfuse egress is the parent's, not the agent's — tool RPC, spec D2/D8).
+        Verified by tests/agent/test_egress_isolation.py + a live diagnostic turn through
+        the isolated container (AGENT_RUNNER=docker).
+    Spec + acceptance evidence: specs/2026-07-18_2246_feature_2.5_agent_service/
 
 Feature 2.6 — Mobile App V1 (RN or Flutter) — build the real app (owner: FE + PM) — 80h
 
@@ -448,7 +461,7 @@ Cross-cutting features (must be done early)
     Langfuse integration (owner: ML + BE) — integrate LLM call and tool call tracing at each invocation. Files: app/services/observability.py
     Logging & metrics: add structured logs with session_id and turn_id
     Consent flag for training usage (append to sessions table and UI)
-    Security/guardrails: agent container has resource limits and egress-proxy allowlist (no default route); hermes tool allowlist enforced in one place (AgentService constructor); per-tenant HERMES_HOME — cross-tenant leak test in CI
+    Security/guardrails: agent container has resource limits and egress-proxy allowlist (no default route); hermes tool allowlist enforced in one place (hermes_backend.ALLOWED_TOOLS, checked against the worker handshake at every session start — Feature 2.5); per-tenant HERMES_HOME — cross-tenant leak test in CI (tests/agent/)
 
 Exact SSE event schema (canonical — must be implemented verbatim)
 

@@ -68,8 +68,9 @@
 |---|---|---|---|
 | Agent Backbone | **hermes-agent** (NousResearch) | **pinned git commit** — no stable API guarantee upstream | Learning loop + trajectory tooling + tool-calling loop |
 | Entry Point | **`run_agent.AIAgent`** (embedded as library) | — | Programmatic conversation loop; no CLI/gateway needed |
-| Model Access | **LiteLLM proxy** (OpenAI-compatible endpoint) | pin major (e.g. ~1.77) | `AIAgent` speaks the OpenAI protocol to any `base_url`; LiteLLM proxy does provider routing behind it |
-| Event Mapping | **`AgentService`** (ours) | — | Maps hermes stream (messages, tool calls) to our typed SSE events |
+| Process Model | **Worker process per session** (`agents/hermes_worker.py` in `.venv-hermes`; JSONL over stdio) | — | Hermes exact-pins its deps and `HERMES_HOME` is process-global → the agent cannot live in the app venv/process (spec 2.5 D1). Domain tools execute **parent-side via stdio RPC** (spec 2.5 D2): no DB/S3 credentials in the agent process; its only egress need is the LLM endpoint. |
+| Model Access | Direct OpenAI-compatible `base_url` now (`REPAIR_LLM_*` env); **LiteLLM proxy at deploy (3.1)** — pin major (e.g. ~1.77) | swap is an env change (user-ratified, spec 2.5 D11) | `AIAgent` speaks the OpenAI protocol to any `base_url`; LiteLLM proxy does provider routing behind it in prod |
+| Event Mapping | **`AgentService`** (ours: `agent_service.py` + `hermes_backend.py`) | — | Maps the worker stream to our typed SSE events; validation authority is the parent (spec 2.5 D4) |
 
 #### Why hermes-agent over smolagents / a plain loop?
 
@@ -106,8 +107,8 @@ Honest answer:
 
 Hermes is a general-purpose agent framework with wide capabilities. We embed it with defense in depth:
 
-1. **Tool allowlist.** The agent is constructed with exactly the four domain tools below **plus hermes' four learning-loop tools** (`memory`, `skills_list`, `skill_view`, `skill_manage`) — the learning loop only functions through its own tools (Feature 0.2 finding, ratified 2026-07-12; they are file-based and tenant-scoped). Terminal execution, browser, image generation, MCP servers, subagent spawning — never registered. No code-execution path exists. The exact exposed-tool set is asserted at every session start.
-2. **Network egress isolation.** We adopt the dual-network Docker pattern from hermes' own `docs/security/network-egress-isolation.md`: the agent container has no default route; an egress proxy allows an explicit host allowlist (LLM endpoints, S3, Langfuse). Prompt-injection exfiltration has nowhere to go.
+1. **Tool allowlist.** The agent is constructed with exactly the four domain tools below **plus hermes' four learning-loop tools** (`memory`, `skills_list`, `skill_view`, `skill_manage`) — the learning loop only functions through its own tools (Feature 0.2 finding, ratified 2026-07-12; they are file-based and tenant-scoped). Terminal execution, browser, image generation, MCP servers, subagent spawning — never registered. No code-execution path exists. The exact exposed-tool set is asserted at every session start: worker-side assert + `ready` handshake checked against `hermes_backend.ALLOWED_TOOLS` (one place); mismatch fails the session safe (verified — it caught a real name-gating surprise, spec 2.5 FINDINGS #1). **Never reuse a hermes built-in tool name for a domain tool** (hermes name-gates e.g. `web_search` on its own config — ours is `repair_web_search`).
+2. **Network egress isolation.** We adopt the dual-network Docker pattern from hermes' own `docs/security/network-egress-isolation.md` (`infra/docker-compose.agent.yml`, `AGENT_RUNNER=docker`): the worker container has no default route; a squid proxy allows an explicit host allowlist. Because domain tools run parent-side (RPC), the agent's allowlist is **LLM endpoint domains + models.dev only** — S3/Langfuse egress belongs to the API process, not the agent. Prompt-injection exfiltration has nowhere to go. Verified by `tests/agent/test_egress_isolation.py` + a live turn through the isolated container.
 3. **Tenant isolation.** One `HERMES_HOME` per tenant — memory, skills, and session state never share a directory across customers. Postgres remains the source of truth; hermes file/SQLite state is a rebuildable cache tier. A cross-tenant leak test is part of the golden harness.
 4. **Physical-safety approval.** `guidance` events carry `safety_level`. High-safety steps (electrical work, lockout/tagout) require explicit technician confirmation in the app before follow-up steps stream — hermes' command-approval concept mapped to physical actions.
 5. **Output validation.** Every event is Pydantic-validated before streaming (unchanged from v2). Invalid agent output is sanitized and logged to Langfuse, never forwarded raw.
@@ -123,7 +124,7 @@ Single embedded `AIAgent` with tools — not a multi-agent society. Hermes suppo
 | `VisionAnalysisTool` | Analyze photos: identify parts, read error codes, assess damage | pytesseract OCR + brand heuristic; LiteLLM multimodal fallback when OCR sees no brand (Feature 2.3) |
 | `KnowledgeRetrievalTool` | Search/retrieve from CNC knowledge base | Interface to Knowledge Layer (see below) |
 | `ErrorCodeLookupTool` | Structured lookup of error codes by controller family | Direct DB/structured data lookup — NOT semantic search |
-| `WebSearchTool` | Fallback: search web for error codes, symptoms, part numbers | Already built (unified_search.py) |
+| `WebSearchTool` | Fallback: search web for error codes, symptoms, part numbers | Thin `ddgs` wrapper `app/tools/web_search.py`, registered as `repair_web_search` (spec 2.5 D9 — unified_search.py's engine zoo not adopted; Tavily is the upgrade path) |
 
 > [!IMPORTANT]
 > The agent does **not** get a "generate repair steps" tool. The agent *itself* reasons about diagnosis and repair using its context. Tools provide information; the agent provides reasoning.
@@ -664,8 +665,10 @@ hermes-agent @ git+https://github.com/NousResearch/hermes-agent@<pinned-commit>
                            # no semver upstream — upgrade deliberately, gated by golden harness
                            # NOT in pyproject.toml: hermes exact-pins its deps (openai==2.24.0)
                            # → dedicated venv .venv-hermes (Feature 1.0 spec D2); process
-                           # boundary between API layer and agent resolved in Feature 2.5
+                           # boundary = worker subprocess, JSONL over stdio (Feature 2.5 D1);
+                           # same image recipe: infra/Dockerfile.agent (egress-isolated runner)
 litellm ~= 1.77            # proxy mode; pin major version
+ddgs                       # keyless web search behind repair_web_search (Feature 2.5 D9)
 
 # Document Processing
 docling                    # baseline PDF parser (spike will evaluate alternatives)
@@ -706,4 +709,4 @@ Before this document becomes binding:
 
 ---
 
-*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added*
+*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/)*
