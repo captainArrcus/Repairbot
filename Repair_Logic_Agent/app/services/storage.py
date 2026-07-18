@@ -26,6 +26,12 @@ def get_object(media_key: str) -> tuple[bytes, str]:
     return obj["Body"].read(), obj.get("ContentType", "")
 
 
+def head_content_type(media_key: str) -> str:
+    """Stored MIME without fetching the body — routes a turn's media to the
+    right tool (image/* → vision, audio/* → STT; Feature 2.4)."""
+    return _s3.head_object(Bucket=config.S3_BUCKET, Key=media_key).get("ContentType", "")
+
+
 def put_object(key: str, data: bytes, content_type: str) -> None:
     """Store an agent-generated asset (e.g. annotated image, Feature 2.3)."""
     _s3.put_object(Bucket=config.S3_BUCKET, Key=key, Body=data, ContentType=content_type)

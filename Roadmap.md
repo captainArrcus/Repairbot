@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2 and 2.3 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3 and 2.4 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -301,18 +301,28 @@ Feature 2.3 — VisionAnalysisTool (owner: ML) — 40h — **[DONE 2026-07-18, d
     Forward pointer: annotated_images[] is the seed of the visual-grounding track (Phase 4.2/4.3) — keep the annotation output path (draw → S3 key) reusable.
     Spec + acceptance evidence: specs/2026-07-18_1759_feature_2.3_vision_analysis/
 
-Feature 2.4 — STT (Whisper) + audio preprocessing (owner: ML + BE) — 24h
+Feature 2.4 — STT (Whisper) + audio preprocessing (owner: ML + BE) — 24h — **[DONE 2026-07-18, dev-verified]**
 
-    Add audio upload handling route (POST /api/v1/media/upload-url already handles uploads; STT runs via background job)
+    Audio uploads already flow through POST /api/v1/media/upload-url (1.2); STT runs inline in
+        the synchronous turn pipeline like every other tool — background job deferred to the
+        2.5 agent restructuring (spec D1)
     File: app/tools/stt.py
     Steps:
-        fetch audio from S3, run noise reduction (noisereduce or RNNoise wrapper)
-        call whisper (large-v3) to transcribe to German
-        return transcript with word timestamps and confidence
+        route turn media by stored MIME (audio/* → STT, rest → vision; spec D7), fetch from S3
+        noise reduction: noisereduce spectral gating, softened to prop_decrease=0.75 —
+        full-strength gating measurably destroys Whisper's noise-robust input (spec D3)
+        call whisper — WHISPER_MODEL config, large-v3 default; no-GPU dev boxes run base
+        (spec D2) — forced German (STT_LANGUAGE)
+        return transcript with word timestamps and confidence (mean word probability)
     Acceptance:
-        For sample noisy audio, WER measured and logged; transcripts appear as user-turn text when user uploads audio.
+        For sample noisy audio, WER measured and logged (0.38 at 10 dB SNR, base model, committed
+        gTTS sample — no field recordings exist yet, spec D5/D6); transcripts appear as user-turn
+        text when user uploads audio.
+        (verified live: presigned voice note → stt tool_call/tool_result events → transcript
+        persisted as user-turn content → spoken "AL309" walks the 2.2 fast path to hypotheses)
     Test:
         tests/stt/test_transcribe_sample.py
+    Spec + acceptance evidence: specs/2026-07-18_1825_feature_2.4_stt/
 
 Feature 2.5 — AgentService: embedded hermes AIAgent + guardrails + Pydantic step enforcement (owner: ML + BE) — 40h
 

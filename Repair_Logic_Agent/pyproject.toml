@@ -18,6 +18,8 @@ dependencies = [
     "pyyaml",
     "pillow",
     "pytesseract",
+    "openai-whisper",
+    "noisereduce",
 ]
 
 [dependency-groups]

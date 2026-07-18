@@ -15,6 +15,10 @@ Feature 2.3: turns carrying photos run VisionAnalysisTool first; detected codes
 join the candidate codes ahead of the lookup, so a photo of a panel showing
 AL 309 walks the same fast path as typed "AL 309".
 
+Feature 2.4: media is routed by stored MIME — audio keys are transcribed
+(Whisper) BEFORE the user turn is persisted, so the transcript becomes
+user-turn text and drives the same code-extraction/search paths as typed text.
+
 The embedded hermes AIAgent replaces these internals in Feature 2.5; the FastAPI
 layer only ever imports this module (Techstack abstraction boundary).
 """
@@ -33,7 +37,8 @@ from app.models.events import (
     ToolCallEvent,
     ToolResultEvent,
 )
-from app.tools import vision_analysis
+from app.services import storage
+from app.tools import stt, vision_analysis
 from app.tools.error_code_lookup import ErrorCodeLookup
 from app.tools.knowledge_layer import KnowledgeRetrieval
 
@@ -49,6 +54,8 @@ _EVIDENCE_TYPES = {"photo", "audio", "tactile", "numeric", "text"}
 
 # ponytail: bounded S3/OCR work per turn; the web prototype sends one photo
 _MAX_VISION_IMAGES = 3
+# ponytail: bounded ffmpeg/Whisper work per turn; one voice note is the real case
+_MAX_STT_CLIPS = 3
 
 
 def create_session(
@@ -130,6 +137,19 @@ def _process_turn(
             (session_id,),
         ).fetchone()["idx"]
 
+        # Feature 2.4: transcribe voice notes BEFORE persisting the user turn —
+        # the transcript IS user-turn text (Roadmap acceptance)
+        audio_keys, visual_keys = _split_media(media_keys or [])
+        stt_events: list[Event] = []
+        stt_tools: list[dict] = []
+        transcripts: list[str] = []
+        if audio_keys:
+            stt_events.append(ThinkingEvent(content="Transkribiere die Sprachnachricht ..."))
+            for media_key in audio_keys[:_MAX_STT_CLIPS]:
+                if transcript := _stt_step(media_key, stt_events, stt_tools):
+                    transcripts.append(transcript)
+        text = "\n".join(part for part in (text, *transcripts) if part.strip())
+
         cur.execute(
             """INSERT INTO diagnostic_turns
                (session_id, turn_index, role, content, media_refs, idempotency_key)
@@ -138,8 +158,10 @@ def _process_turn(
         )
 
         events, tools_called, question = _scripted_diagnosis(
-            cur, text, media_keys or [], machine_context, idx + 1
+            cur, text, visual_keys, machine_context, idx + 1
         )
+        events = stt_events + events
+        tools_called = stt_tools + tools_called
 
         agent_turn_id = cur.execute(
             """INSERT INTO diagnostic_turns
@@ -355,6 +377,40 @@ def _question_from_alarm(alarm: dict) -> tuple[str, QuestionEvent]:
     return question, QuestionEvent(
         content=question, evidence_type=evidence_type, required_format=dq.get("expected_format")
     )
+
+
+def _split_media(media_keys: list[str]) -> tuple[list[str], list[str]]:
+    """Route by stored MIME (trustworthy — the presign signs it, 1.2). Keys
+    whose type can't be read go to the visual path, whose failure handling
+    already reports them as failure-summary tool_results."""
+    audio: list[str] = []
+    visual: list[str] = []
+    for key in media_keys:
+        try:
+            kind = storage.head_content_type(key)
+        except Exception:
+            kind = ""
+        (audio if kind.startswith("audio/") else visual).append(key)
+    return audio, visual
+
+
+def _stt_step(media_key: str, events: list[Event], tools_called: list[dict]) -> str:
+    """Feature 2.4: voice note in the turn → STT tool, streamed as tool events.
+    Failures (bad recording, ffmpeg, S3 down) become a failure-summary
+    tool_result — broken audio must never 500 the turn."""
+    args = {"media_key": media_key}
+    events.append(ToolCallEvent(tool="stt", args=args))
+    try:
+        result = stt.transcribe(media_key)
+        summary = f"transcript (confidence {result['confidence']}): {result['transcript']}"
+        events.append(ToolResultEvent(tool="stt", result_summary=summary, raw_result=result))
+        transcript = result["transcript"]
+    except Exception as exc:
+        summary = f"transcription failed: {exc}"
+        events.append(ToolResultEvent(tool="stt", result_summary=summary))
+        transcript = ""
+    tools_called.append({"tool": "stt", "args": args, "result_summary": summary})
+    return transcript
 
 
 def _vision_step(media_key: str, events: list[Event], tools_called: list[dict]) -> list[str]:

@@ -153,6 +153,43 @@ def test_bare_number_resolves_to_al_code():
     assert "hypothesis" in [e["event_type"] for e in events]  # matched seeded "AL 309"
 
 
+@needs_db
+def test_audio_turn_transcript_becomes_user_turn_text(monkeypatch):
+    """Feature 2.4 acceptance: transcripts appear as user-turn text and drive
+    the same diagnosis paths as typed text (STT itself mocked — tests/stt/)."""
+    from app.services import agent_service
+
+    monkeypatch.setattr(agent_service.storage, "head_content_type", lambda key: "audio/webm")
+    monkeypatch.setattr(
+        agent_service.stt,
+        "transcribe",
+        lambda key: {
+            "transcript": "AL 309 beim Verfahren der X-Achse, deutliches Rattern",
+            "language": "de",
+            "words": [],
+            "confidence": 0.87,
+        },
+    )
+    session_id = _create_session()
+    resp = client.post(
+        f"/api/v1/sessions/{session_id}/turns", json={"media_keys": ["voice-note-key"]}
+    )
+    assert resp.status_code == 200
+    turn_id = resp.json()["turn_id"]
+
+    events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
+    calls = [e["event_data"]["tool"] for e in events if e["event_type"] == "tool_call"]
+    assert calls == ["stt", "error_code_lookup"]  # audio routed to STT, not vision
+    assert "hypothesis" in [e["event_type"] for e in events]  # transcript walked the fast path
+
+    with psycopg.connect(config.DATABASE_URL) as conn:
+        content = conn.execute(
+            "SELECT content FROM diagnostic_turns WHERE session_id = %s AND role = 'user'",
+            (session_id,),
+        ).fetchone()[0]
+    assert "AL 309" in content  # the transcript IS the user-turn text
+
+
 class _OneShotRequest:
     """Disconnects after the first poll — TestClient can't consume an unbounded
     stream body, so the generator is driven directly; the HTTP layer is covered

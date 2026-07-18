@@ -275,8 +275,8 @@ We'll evaluate this alongside classic RAG and VLM in the Phase 0 spike.
 |---|---|---|
 | **UI language** | German + English | Full multilingual UI deferred to Phase 2 |
 | **Agent conversation language** | German | System prompts in English (better LLM performance), user-facing output in German. Agent auto-detects user language. |
-| **STT (Speech-to-Text)** | **Whisper large-v3** (local) | German Tier 1 language, <5% WER on clean audio. Factory noise adds 5–15% WER — acceptable with audio preprocessing. Run locally for privacy/latency. |
-| **STT preprocessing** | Noise reduction before Whisper | Spectral subtraction / noise gate. Factory floors are loud. |
+| **STT (Speech-to-Text)** | **Whisper large-v3** (local) | German Tier 1 language, <5% WER on clean audio. Factory noise adds 5–15% WER — acceptable with audio preprocessing. Run locally for privacy/latency. **Implemented (Feature 2.4):** `app/tools/stt.py`, `WHISPER_MODEL` config (large-v3 default; no-GPU dev boxes run `base`), forced German via `STT_LANGUAGE`. |
+| **STT preprocessing** | Noise reduction before Whisper | Spectral subtraction / noise gate. Factory floors are loud. **Implemented (Feature 2.4):** noisereduce spectral gating softened to 0.75 — full-strength gating measurably *hurts* Whisper (noise-robust by training); re-tune against field recordings (spec 2.4 D3). |
 | **Embedding model** (if RAG) | **Multilingual model required** | e.g., `multilingual-e5-large` or Cohere multilingual. Most OSS embedders are Anglo-centric — this is a product-market fit risk. |
 | **Prompt language** | English system prompt + German user content | LLMs reason better in English. Output language follows user input. |
 | **Manual language detection** | Auto-detect per document | Tag at ingestion time. Route to appropriate processing. |
@@ -671,7 +671,8 @@ litellm ~= 1.77            # proxy mode; pin major version
 docling                    # baseline PDF parser (spike will evaluate alternatives)
 
 # Speech
-openai-whisper             # local STT
+openai-whisper             # local STT (Feature 2.4; model size via WHISPER_MODEL)
+noisereduce                # spectral gating before Whisper, softened (spec 2.4 D3)
 
 # Data
 psycopg[binary]            # PostgreSQL — direct SQL, no ORM
