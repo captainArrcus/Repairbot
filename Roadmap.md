@@ -437,7 +437,7 @@ Feature 2.7 — Learning Pipeline v1: field → cloud (owner: ML + BE) — 32h �
         promotion → fleet base → tenant-B session has it in its skills prompt index.
     Spec + acceptance evidence: specs/2026-07-19_2229_feature_2.7_learning_pipeline/
 
-Feature 2.8 — Controller-family normalization (owner: BE) — 4h
+Feature 2.8 — Controller-family normalization (owner: BE) — 4h — **[DONE 2026-07-19]**
 
     Closes the 2.2-D2 gap that bit twice (2.3: brand-level vision result; 2.5 finding #2:
     exact lookup missed because the model says "SINUMERIK" while seeds store
@@ -445,10 +445,16 @@ Feature 2.8 — Controller-family normalization (owner: BE) — 4h
     Canonical family-alias map (data, not code): brand + variant strings → seeded
     controller_family values, owned by app/tools/error_code_lookup.py alongside the
     existing code normalization.
+    As built: FAMILY_ALIASES + _canonical_family() applied inside lookup() — one guard,
+        every caller (scripted agent_service, hermes dispatcher, KnowledgeRetrieval
+        delegate) covered. Unmapped families pass through unchanged (no silent widening).
+        Extend the map with each new seed batch.
     Small and independent — does NOT gate 2.6 or 2.7.
-    Acceptance:
-        lookup("SINUMERIK", "AL 309") exact-hits without the family=None retry;
-        the 2.5 dispatcher retry becomes dead code and is removed.
+    Acceptance (verified — spec FINDINGS):
+        lookup("SINUMERIK", "AL 309") exact-hits without the family=None retry (DB test
+        green against the real seed); the 2.5 dispatcher retry removed from
+        hermes_backend.py; full suite 69 passed.
+    Spec + acceptance evidence: specs/2026-07-19_2253_feature_2.8_family_normalization/
 
 Feedback round 1 — first app field test (2026-07-19)
 User feedback: (a) no visual distinction between what the user sent and what the agent answered; (b) captured photo not shown — neither immediately on capture nor in the conversation; (c) voice recording works but the transcript is invisible before send, so the user cannot verify what was understood; (d) the stream "just matches input text" — root cause: the field test ran the DEFAULT scripted backend (AGENT_BACKEND=scripted, 2.5 D7); the interactive hermes agent (thinking/planning) is opt-in and never reached the phone. Features 2.9–2.11 close this, ordered so each is field-testable on its own; 2.11 depends on 2.9 (rendering).

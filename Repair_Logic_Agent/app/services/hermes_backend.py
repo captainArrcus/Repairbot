@@ -346,11 +346,9 @@ def _dispatch_tool(
             )
         elif tool == "error_code_lookup":
             lookup = ErrorCodeLookup(cur.connection)
+            # family variants (SINUMERIK vs SINUMERIK_840D_sl) are canonicalized
+            # inside the tool (2.8) — no family=None retry needed
             result = lookup.lookup(args.get("controller_family"), args.get("code", ""))
-            if result is None and args.get("controller_family"):
-                # family strings vary (SINUMERIK vs SINUMERIK_840D_sl, 2.2-D2 gap):
-                # a family miss must not hide an exact code hit
-                result = lookup.lookup(None, args.get("code", ""))
             summary = (
                 f"exact match: {result['code']} ({result['controller_family']})"
                 if result

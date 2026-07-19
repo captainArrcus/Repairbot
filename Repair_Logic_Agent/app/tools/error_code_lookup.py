@@ -18,6 +18,32 @@ from app import db
 # matches the seeded formats: "AL 309", "AL-309", "AL309", "F07011", bare "10720"/"309"
 CODE_RE = re.compile(r"\b(?:AL[\s-]?\d{3,6}|F\s?\d{4,6}|\d{3,6})\b", re.IGNORECASE)
 
+# Feature 2.8 — canonical family-alias map (data, not code): brand + variant
+# strings (vision is brand-level, agents improvise casing/separators) → the
+# exact controller_family values seeded in error_codes. Keys are normalized
+# (upper, separators collapsed to "_"); extend alongside each new seed batch.
+FAMILY_ALIASES = {
+    "SINUMERIK": "SINUMERIK_840D_sl",
+    "SIEMENS": "SINUMERIK_840D_sl",
+    "SIEMENS_SINUMERIK": "SINUMERIK_840D_sl",
+    "SINUMERIK_840D": "SINUMERIK_840D_sl",
+    "SINUMERIK_840D_SL": "SINUMERIK_840D_sl",
+    "840D": "SINUMERIK_840D_sl",
+    "840D_SL": "SINUMERIK_840D_sl",
+}
+
+
+def _canonical_family(family: str | None) -> str | None:
+    """Map brand/variant family strings to their seeded canonical value.
+
+    Unmapped strings pass through unchanged: a family with no seeds (e.g.
+    HEIDENHAIN today) honestly returns no rows instead of silently widening.
+    """
+    if family is None or not family.strip():
+        return None
+    key = re.sub(r"[\s\-_]+", "_", family.strip()).upper()
+    return FAMILY_ALIASES.get(key, family)
+
 _LOOKUP_SQL = """
     SELECT controller_family, code, category, severity, message_de, message_en,
            probable_causes, recommended_actions, related_components,
@@ -56,9 +82,10 @@ class ErrorCodeLookup:
     def lookup(self, controller_family: str | None, code: str) -> dict | None:
         """Exact match after normalization; confidence 1.0 by definition.
 
-        controller_family=None searches all families (family-string
-        normalization like SINUMERIK_840D vs _sl is out of scope, spec D2).
+        controller_family=None searches all families. Non-None values are
+        canonicalized through FAMILY_ALIASES (closes the 2.2-D2 gap, spec 2.8).
         """
+        controller_family = _canonical_family(controller_family)
         variants = _variants(code)
         if not variants:
             return None

@@ -9,7 +9,7 @@ import psycopg
 import pytest
 
 from app import config
-from app.tools.error_code_lookup import ErrorCodeLookup, _variants
+from app.tools.error_code_lookup import ErrorCodeLookup, _canonical_family, _variants
 from app.tools.knowledge_layer import KnowledgeRetrieval
 
 
@@ -32,6 +32,17 @@ def test_normalization_variants():
     # bare number keeps both readings: printed bare code and AL-prefixed code
     assert {"309", "AL 309"} <= set(_variants("309"))
     assert _variants("   ") == []
+
+
+def test_family_normalization():
+    # 2.8: brand + variant strings map to the seeded canonical family
+    assert _canonical_family("SINUMERIK") == "SINUMERIK_840D_sl"
+    assert _canonical_family("siemens sinumerik") == "SINUMERIK_840D_sl"
+    assert _canonical_family("840d-sl") == "SINUMERIK_840D_sl"
+    assert _canonical_family("SINUMERIK_840D_sl") == "SINUMERIK_840D_sl"
+    assert _canonical_family("HEIDENHAIN") == "HEIDENHAIN"  # unmapped passes through
+    assert _canonical_family(None) is None
+    assert _canonical_family("  ") is None
 
 
 def test_extract_codes():
@@ -70,6 +81,12 @@ def test_lookup_controller_family_filter():
     assert tool.lookup("SINUMERIK_840D_sl", "AL 309") is not None
     assert tool.lookup("FANUC_30i", "AL 309") is None
     assert tool.lookup(None, "AL 999999") is None
+
+
+@needs_db
+def test_lookup_brand_level_family_exact_hits():
+    # 2.8 acceptance: vision's brand-level string exact-hits without a family=None retry
+    assert ErrorCodeLookup().lookup("SINUMERIK", "AL 309")["code"] == "AL 309"
 
 
 @needs_db

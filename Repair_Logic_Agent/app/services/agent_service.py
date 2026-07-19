@@ -407,7 +407,8 @@ def _scripted_diagnosis(
         )
         events.append(ToolCallEvent(tool="error_code_lookup", args={"codes": codes}))
         tool = ErrorCodeLookup(cur.connection)
-        # family filter deliberately None: family-string variants would false-negative (spec D2)
+        # family filter deliberately None: broadest exact-code search; variant
+        # strings are canonicalized inside the tool anyway (2.8 alias map)
         alarm = next((a for c in codes if (a := tool.lookup(None, c))), None)
         if alarm:
             summary = f"exact match: {alarm['code']} ({alarm['controller_family']})"

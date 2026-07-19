@@ -5,8 +5,8 @@ Roadmap pipeline: fetch image from S3 → preprocess (Pillow) → pytesseract OC
 heuristic; LiteLLM multimodal fallback) → red boxes around detected codes,
 annotation uploaded to S3 (seed of the Phase 4.2 visual-grounding track).
 
-detected_controller is brand-level (SINUMERIK / HEIDENHAIN / FANUC) — mapping
-to exact families is the open family-normalization issue (spec 2.2 D2).
+detected_controller is brand-level (SINUMERIK / HEIDENHAIN / FANUC) — the
+error_code_lookup FAMILY_ALIASES map (2.8) canonicalizes it to seeded families.
 """
 
 import base64

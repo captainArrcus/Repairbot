@@ -123,7 +123,7 @@ Single embedded `AIAgent` with tools — not a multi-agent society. Hermes suppo
 |---|---|---|
 | `VisionAnalysisTool` | Analyze photos: identify parts, read error codes, assess damage | pytesseract OCR + brand heuristic; LiteLLM multimodal fallback when OCR sees no brand (Feature 2.3) |
 | `KnowledgeRetrievalTool` | Search/retrieve from CNC knowledge base | Interface to Knowledge Layer (see below) |
-| `ErrorCodeLookupTool` | Structured lookup of error codes by controller family | Direct DB/structured data lookup — NOT semantic search |
+| `ErrorCodeLookupTool` | Structured lookup of error codes by controller family | Direct DB/structured data lookup — NOT semantic search. Query-time normalization for both inputs: code format variants AND family aliases (`FAMILY_ALIASES`, brand/variant → seeded family, Feature 2.8) |
 | `WebSearchTool` | Fallback: search web for error codes, symptoms, part numbers | Thin `ddgs` wrapper `app/tools/web_search.py`, registered as `repair_web_search` (spec 2.5 D9 — unified_search.py's engine zoo not adopted; Tavily is the upgrade path) |
 
 > [!IMPORTANT]
