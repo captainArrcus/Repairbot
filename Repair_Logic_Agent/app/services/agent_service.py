@@ -155,12 +155,14 @@ def _run_turn(
     ).fetchone()["idx"]
 
     # Feature 2.4: transcribe voice notes BEFORE persisting the user turn —
-    # the transcript IS user-turn text (Roadmap acceptance)
+    # the transcript IS user-turn text (Roadmap acceptance). Feature 2.10:
+    # user text present means the app already echoed (or replaced) the
+    # transcript — skip STT, no double transcription (2.10 D4).
     audio_keys, visual_media = _split_media(media_keys or [])
     stt_events: list[Event] = []
     tools_called: list[dict] = []
     transcripts: list[str] = []
-    if audio_keys:
+    if audio_keys and not text.strip():
         stt_events.append(ThinkingEvent(content="Transkribiere die Sprachnachricht ..."))
         for media_key in audio_keys[:_MAX_STT_CLIPS]:
             if transcript := _stt_step(media_key, stt_events, tools_called):

@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field); 2.9 is BUILT and dev-verified (on-phone check = field runbook). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field); 2.9 and 2.10 are BUILT and dev-verified (on-phone checks = field runbook; 2.10 live-verified against the real STT pipeline). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -479,19 +479,32 @@ Feature 2.9 — Chat conversation view: user turns + inline media (owner: FE) �
         Take photo → thumbnail visible before send; send turn → photo + text appear as a
         user bubble; agent output clearly distinguishable from user input.
 
-Feature 2.10 — Voice transcript echo before send (owner: BE + FE) — 12h
+Feature 2.10 — Voice transcript echo before send (owner: BE + FE) — 12h — **[BUILT 2026-07-20, dev-verified live; on-phone record→echo→edit→send check = field runbook]**
 
     Objective: user must SEE (and can correct) what STT understood BEFORE it drives the diagnosis.
     Backend: POST /api/v1/media/{media_key}/transcribe → runs the 2.4 STT pipeline
         (app/tools/stt.py) standalone, returns { transcript, confidence }. Reuses the tool as-is.
+        As built: {media_key:path} route (keys contain the tenant slash, spec D1); tenant
+        guard mirrors 2.5 D6 (foreign tenant / missing object → 404, non-audio → 422,
+        pipeline failure → 502 so the app can degrade; spec D2/D3). Synchronous like every
+        tool since 2.4 D1.
     App: after audio upload, call transcribe and put the transcript into the text field
         (editable); user corrects, then sends TEXT (audio media_key stays attached for the
         Data Bridge).
+        As built: upload happens at recording STOP (was send time); Attachment carries the
+        media_key so the send queue skips the re-upload (2.6 D5 write-back). Chip shows
+        "transkribiere …"; stale echo dropped if the audio was sent/discarded in flight;
+        failure → toast + audio stays attached, server-side 2.4 STT covers it (spec D5).
     Turn pipeline: skip STT when the turn already carries user text (text-presence check in
         the agent_service media routing, extends 2.4 D7) — no double transcription.
     Acceptance:
         Record voice note → transcript appears in the text field → edit one word → send →
         agent works with the edited text; event stream shows no second stt tool_call.
+        Status: dev-verified — live endpoint round-trip (presign → PUT sample_de.mp3 →
+        transcribe → correct German transcript, conf 0.81, ~4 s inline, whisper base);
+        skip-STT + tenant-guard tests green (full suite 73 passed); tsc clean. On-phone
+        echo-and-edit run = field runbook item.
+    Spec + acceptance evidence: specs/2026-07-20_0123_feature_2.10_transcript_echo/
 
 Feature 2.11 — Hermes agent in the field (owner: ML + FE) — 16h — depends on 2.9
 

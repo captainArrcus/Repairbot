@@ -497,6 +497,9 @@ CREATE TABLE error_codes (
 ```
 POST   /api/v1/sessions                         → Create diagnostic session
 POST   /api/v1/media/upload-url                  → Get presigned S3 upload URL
+POST   /api/v1/media/{media_key}/transcribe      → Standalone STT: transcript echo before
+                                                   send (Feature 2.10; {transcript,
+                                                   confidence}, tenant-guarded)
 POST   /api/v1/sessions/{id}/turns               → Send user turn (text + media_keys)
 GET    /api/v1/sessions/{id}/stream              → SSE stream of current agent response
 GET    /api/v1/sessions/{id}/turns/{tid}/events   → Replay events for a turn (resumability)

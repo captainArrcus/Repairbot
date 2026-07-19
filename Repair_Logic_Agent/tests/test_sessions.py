@@ -190,6 +190,31 @@ def test_audio_turn_transcript_becomes_user_turn_text(monkeypatch):
     assert "AL 309" in content  # the transcript IS the user-turn text
 
 
+@needs_db
+def test_audio_with_text_skips_stt(monkeypatch):
+    """Feature 2.10 acceptance: the app echoed the transcript into the text —
+    the turn pipeline must NOT transcribe again (no second stt tool_call)."""
+    from app.services import agent_service
+
+    monkeypatch.setattr(agent_service.storage, "head_content_type", lambda key: "audio/m4a")
+    monkeypatch.setattr(
+        agent_service.stt,
+        "transcribe",
+        lambda key: pytest.fail("STT must be skipped when the turn carries user text"),
+    )
+    session_id = _create_session()
+    resp = client.post(
+        f"/api/v1/sessions/{session_id}/turns",
+        json={"text": "AL 309 beim Verfahren der X-Achse", "media_keys": ["voice-note-key"]},
+    )
+    assert resp.status_code == 200
+    turn_id = resp.json()["turn_id"]
+    events = client.get(f"/api/v1/sessions/{session_id}/turns/{turn_id}/events").json()["events"]
+    calls = [e["event_data"]["tool"] for e in events if e["event_type"] == "tool_call"]
+    assert "stt" not in calls
+    assert "hypothesis" in [e["event_type"] for e in events]  # typed text drove the fast path
+
+
 class _OneShotRequest:
     """Disconnects after the first poll — TestClient can't consume an unbounded
     stream body, so the generator is driven directly; the HTTP layer is covered

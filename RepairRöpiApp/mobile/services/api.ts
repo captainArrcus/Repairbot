@@ -72,6 +72,13 @@ export async function recordOutcome(
   });
 }
 
+// Feature 2.10: standalone STT — echo the transcript into the composer before send.
+export async function transcribeMedia(
+  mediaKey: string
+): Promise<{ transcript: string; confidence: number }> {
+  return jsonFetch(`/api/v1/media/${mediaKey}/transcribe`, { method: "POST" });
+}
+
 // Presign + direct PUT (Feature 1.2). Content-Type is part of the signature.
 export async function uploadMedia(
   localUri: string,

@@ -37,6 +37,41 @@ def test_rejects_non_media_content_type():
     assert resp.status_code == 422
 
 
+# Feature 2.10 — standalone transcribe endpoint (STT itself mocked; the real
+# pipeline is covered by tests/stt/).
+
+
+def test_transcribe_returns_transcript_and_confidence(monkeypatch):
+    from app.api import media
+
+    result = {"transcript": "AL 309 Rattern", "language": "de", "words": [], "confidence": 0.9}
+    monkeypatch.setattr(media.stt, "transcribe", lambda key: result)
+    resp = client.post("/api/v1/media/dev/some-uuid/transcribe")
+    assert resp.status_code == 200
+    assert resp.json() == {"transcript": "AL 309 Rattern", "confidence": 0.9}
+
+
+def test_transcribe_foreign_tenant_is_404(monkeypatch):
+    from app.api import media
+
+    monkeypatch.setattr(
+        media.stt, "transcribe", lambda key: pytest.fail("tenant guard must run before STT")
+    )
+    resp = client.post("/api/v1/media/other-tenant/some-uuid/transcribe")
+    assert resp.status_code == 404
+
+
+def test_transcribe_non_audio_is_422(monkeypatch):
+    from app.api import media
+
+    def not_audio(key):
+        raise ValueError(f"{key} is not audio (image/jpeg)")
+
+    monkeypatch.setattr(media.stt, "transcribe", not_audio)
+    resp = client.post("/api/v1/media/dev/photo-key/transcribe")
+    assert resp.status_code == 422
+
+
 def test_put_roundtrip():
     body = _request_upload_url()
     payload = b"\xff\xd8fake-jpeg-bytes"

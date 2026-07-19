@@ -22,7 +22,14 @@ import {
 
 import HypothesisList from "../components/HypothesisList";
 import { colors } from "../components/theme";
-import { ApiError, openStream, recordOutcome, sendTurn, uploadMedia } from "../services/api";
+import {
+  ApiError,
+  openStream,
+  recordOutcome,
+  sendTurn,
+  transcribeMedia,
+  uploadMedia,
+} from "../services/api";
 import {
   applyEvent,
   applyUserEntries,
@@ -44,7 +51,13 @@ import {
 
 type Props = { sessionId: string; onBack: () => void };
 
-type Attachment = { uri: string; type: string; name: string; durationMs?: number };
+type Attachment = {
+  uri: string;
+  type: string;
+  name: string;
+  durationMs?: number;
+  mediaKey?: string | null; // 2.10: audio is uploaded at recording stop for the echo
+};
 
 // 2.9 D3: local-uri echo; the cache file can vanish → degrade to a chip.
 function BubblePhoto({ uri }: { uri: string }) {
@@ -62,6 +75,8 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
   const [text, setText] = useState("");
   const [photo, setPhoto] = useState<Attachment | null>(null);
   const [audio, setAudio] = useState<Attachment | null>(null);
+  const audioRef = useRef(audio);
+  const [transcribing, setTranscribing] = useState(false);
   const [pending, setPending] = useState<PendingTurn | null>(null);
   const pendingRef = useRef(pending);
   const sendingRef = useRef(false);
@@ -78,6 +93,9 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
   useEffect(() => {
     pendingRef.current = pending;
   }, [pending]);
+  useEffect(() => {
+    audioRef.current = audio;
+  }, [audio]);
 
   // Restore phone-local state (user log, unsent turn); agent state comes from SSE replay.
   useEffect(() => {
@@ -187,7 +205,7 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
         contentType: m.type,
         filename: m.name,
         durationMs: m.durationMs ?? null,
-        mediaKey: null,
+        mediaKey: m.mediaKey ?? null, // 2.10: audio already uploaded for the echo
       })),
     };
     if (!p.text && p.media.length === 0) return;
@@ -217,12 +235,38 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
     }
   }
 
+  // 2.10 D5: upload right after recording, echo the transcript into the text
+  // field (editable). Failure keeps the audio attached — the 2.4 inline STT
+  // path transcribes server-side when the turn arrives without text.
+  async function echoTranscript(att: Attachment) {
+    setTranscribing(true);
+    try {
+      const mediaKey = await uploadMedia(att.uri, att.type, att.name);
+      setAudio((a) => (a && a.uri === att.uri ? { ...a, mediaKey } : a));
+      const { transcript } = await transcribeMedia(mediaKey);
+      if (audioRef.current?.uri !== att.uri) return; // sent/discarded meanwhile — drop stale echo
+      if (transcript) setText((t) => (t.trim() ? `${t} ${transcript}` : transcript));
+    } catch {
+      setToast("Transkription nicht verfügbar — Sprachnotiz wird als Audio gesendet.");
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
   async function toggleRecording() {
     if (recState.isRecording) {
       const durationMs = recState.durationMillis ?? 0;
       await recorder.stop();
-      if (recorder.uri)
-        setAudio({ uri: recorder.uri, type: "audio/m4a", name: "sprachnotiz.m4a", durationMs });
+      if (recorder.uri) {
+        const att: Attachment = {
+          uri: recorder.uri,
+          type: "audio/m4a",
+          name: "sprachnotiz.m4a",
+          durationMs,
+        };
+        setAudio(att);
+        echoTranscript(att);
+      }
       return;
     }
     const perm = await AudioModule.requestRecordingPermissionsAsync();
@@ -425,7 +469,8 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
           {audio && (
             <Pressable onPress={() => setAudio(null)}>
               <Text style={styles.chip}>
-                🎤 {Math.round((audio.durationMs ?? 0) / 1000)}s ✕
+                🎤 {Math.round((audio.durationMs ?? 0) / 1000)}s
+                {transcribing ? " · transkribiere …" : ""} ✕
               </Text>
             </Pressable>
           )}
