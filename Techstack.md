@@ -152,6 +152,13 @@ Implementation: hermes' `AIAgent` runs a tool-calling loop with typed tool calls
 
 ## Learning Pipeline — Field → Cloud
 
+> **Status: implemented (Feature 2.7, 2026-07-19).** `app/services/learning_pipeline.py`,
+> triggered by POST /outcome. Trajectories are per-session via a session-scoped worker CWD
+> and uploaded as **raw** gzipped ShareGPT JSONL — `trajectory_compressor` is deferred until
+> trajectories exceed its token budget (spec D3). Curation gate = tenant-string scrub +
+> `python -m app.services.learning_pipeline promote <id>`; fleet skills sync into tenant
+> homes at worker start. See `specs/2026-07-19_2229_feature_2.7_learning_pipeline/`.
+
 > **This is what the hermes bet buys us.** The agent doesn't just log sessions — it learns from them, and we pipeline those learnings centrally. "Everything the user on the ground learns, the fleet learns."
 
 Three artifact streams flow from each tenant's agent state to the cloud:
@@ -732,4 +739,4 @@ Before this document becomes binding:
 
 ---
 
-*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/); 2026-07-19: findings review — egress table corrected (LLM+models.dev only), eval metric → top-1 accuracy, dev-model reality noted, STT GPU decision → 3.1, corpus ingestion → knowledge crawler (Roadmap 4.4); Feature 2.6 landed: frontend locked to React Native + Expo SDK 57, app built (specs/2026-07-19_0309_feature_2.6_mobile_app/)*
+*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/); 2026-07-19: findings review — egress table corrected (LLM+models.dev only), eval metric → top-1 accuracy, dev-model reality noted, STT GPU decision → 3.1, corpus ingestion → knowledge crawler (Roadmap 4.4); Feature 2.6 landed: frontend locked to React Native + Expo SDK 57, app built (specs/2026-07-19_0309_feature_2.6_mobile_app/); Feature 2.7 landed: learning pipeline v1 — per-session trajectories → S3+refs, skill curation queue + fleet promotion, memory backup (specs/2026-07-19_2229_feature_2.7_learning_pipeline/)*

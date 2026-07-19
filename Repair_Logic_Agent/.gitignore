@@ -4,3 +4,4 @@ data_crawling_pipe/
 agents/.hermes_home/
 agents/logs/
 agents/spike_results.json
+agents/.hermes_fleet_skills/

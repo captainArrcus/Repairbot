@@ -17,8 +17,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import db
-from app.services import agent_service, traces
-from app.services.hermes_backend import AgentBusyError
+from app.services import agent_service, learning_pipeline, observability, traces
+from app.services.hermes_backend import AgentBusyError, drop_worker
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
@@ -101,6 +101,13 @@ def record_outcome(session_id: UUID, req: OutcomeRequest) -> dict:
         traces.record_outcome(str(session_id), **req.model_dump())
     except KeyError:
         raise HTTPException(404, "session not found") from None
+    # Feature 2.7 (spec D1): session closed — free the worker, harvest learnings.
+    # Best-effort: a pipeline failure must never fail the outcome POST.
+    drop_worker(str(session_id))
+    try:
+        learning_pipeline.harvest_session(str(session_id))
+    except Exception as exc:
+        observability.log_agent_error(str(session_id), "learning_pipeline", str(exc))
     return {"status": req.outcome}
 
 

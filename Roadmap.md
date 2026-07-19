@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -404,28 +404,38 @@ Feature 2.6 — Mobile App V1 — build the real app (owner: FE + PM) — 80h �
         Remaining: rugged-device end-to-end field test.
     Spec + acceptance evidence: specs/2026-07-19_0309_feature_2.6_mobile_app/
 
-Feature 2.7 — Learning Pipeline v1: field → cloud (owner: ML + BE) — 32h
+Feature 2.7 — Learning Pipeline v1: field → cloud (owner: ML + BE) — 32h — **[DONE 2026-07-19, live-verified end to end]**
 
     Objective: implement the Techstack v3 Learning Pipeline — every session's learnings become
     cloud assets, tenant-isolated, with a curation gate before anything is shared.
-    Files:
-        app/services/learning_pipeline.py
-        db/migrations/00X_learning_tables.sql (skill_curation_queue, trajectory_refs)
-    Three streams:
-        1. Trajectories: after each session, export the hermes trajectory (compressed via
-           trajectory_compressor), upload to S3 under tenant prefix, insert Postgres ref row.
-        2. Skills: watch per-tenant HERMES_HOME/skills/; new/changed skills are copied into
-           skill_curation_queue (status: pending_review). Promotion to the fleet skill base is a
-           manual review action in Phase 2 (simple CLI/SQL is fine — no admin UI yet).
-        3. Memory: per-tenant hermes memory is backed up to S3 (tenant prefix). Never shared.
+    Files (as built):
+        app/services/learning_pipeline.py (harvest + queue/promote/reject CLI)
+        db/migrations/003_learning_tables.sql (skill_curation_queue, trajectory_refs)
+    Trigger: POST /api/v1/sessions/{id}/outcome — session closure drops the worker and runs
+        the harvest best-effort (a pipeline failure never fails the outcome POST; spec D1).
+        Sessions abandoned without an outcome are not harvested in v1.
+    Three streams (as built):
+        1. Trajectories: per-session by construction — the worker CWD is session-scoped
+           (<tenant_home>/trajectories/<session_id>/; hermes appends to CWD, 0.2 finding #5).
+           Uploaded as raw gzipped ShareGPT JSONL to
+           learning/<tenant>/trajectories/<sid>.jsonl.gz + trajectory_refs row.
+           trajectory_compressor deliberately NOT wired (spec D3): it only rewrites
+           trajectories above its token budget and needs transformers + an LLM summarizer —
+           run it as a batch step when Phase 4 fine-tuning prep sees over-budget trajectories.
+        2. Skills: post-session scan of HERMES_HOME/<tenant>/skills/ → content-hash-deduped
+           rows in skill_curation_queue (pending_review, content stored in the row).
+           Promotion: python -m app.services.learning_pipeline promote <id> → fleet base
+           (FLEET_SKILLS_DIR), synced into every tenant home at worker start (own skill wins;
+           unmodified fleet copies are not re-queued).
+        3. Memory: memories/ → learning/<tenant>/memory.tar.gz (latest snapshot). Never shared.
     Guardrail (non-negotiable):
-        Nothing crosses a tenant boundary without curation. Automated scrub of tenant-identifying
-        strings + human approval. Test: a skill created in tenant A is not loadable by tenant B
-        unless promoted.
-    Acceptance:
-        Run a dev session -> trajectory appears in S3 + ref row in Postgres; a synthetic skill
-        lands in the curation queue; promotion copies it to the fleet skill base and a tenant-B
-        session can then use it.
+        Nothing crosses a tenant boundary without curation. Automated tenant-string scrub
+        blocks promotion + human runs the CLI (NER/PII scrub deferred until volume demands).
+        Cross-tenant test green: tests/agent/test_learning_pipeline.py.
+    Acceptance (all verified — spec FINDINGS):
+        Live hermes session → trajectory in MinIO + ref row; synthetic skill queued on outcome;
+        promotion → fleet base → tenant-B session has it in its skills prompt index.
+    Spec + acceptance evidence: specs/2026-07-19_2229_feature_2.7_learning_pipeline/
 
 Feature 2.8 — Controller-family normalization (owner: BE) — 4h
 

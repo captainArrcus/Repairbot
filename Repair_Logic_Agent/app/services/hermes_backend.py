@@ -12,6 +12,7 @@ touches diagnostic_turn_events itself.
 import json
 import queue
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -79,13 +80,17 @@ class Worker:
         self.lock = threading.Lock()
         self.turns_seen = 0
         tenant_dir = Path(config.HERMES_HOME_ROOT) / tenant_id
-        tenant_dir.mkdir(parents=True, exist_ok=True)
+        # session-scoped CWD: hermes appends trajectories to the CWD (0.2 finding
+        # #5), so this dir IS the session's trajectory — spec 2.7 D2
+        work_dir = tenant_dir / "trajectories" / session_id
+        work_dir.mkdir(parents=True, exist_ok=True)
+        _sync_fleet_skills(tenant_dir)
         self.proc = subprocess.Popen(
             _worker_cmd(session_id, tenant_dir),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             env=None if config.AGENT_RUNNER == "docker" else _worker_env(session_id, tenant_dir),
-            cwd=None if config.AGENT_RUNNER == "docker" else tenant_dir,
+            cwd=None if config.AGENT_RUNNER == "docker" else work_dir,
             text=True,
         )
         self._queue: queue.Queue = queue.Queue()
@@ -126,6 +131,18 @@ class Worker:
     @property
     def alive(self) -> bool:
         return self.proc.poll() is None
+
+
+def _sync_fleet_skills(tenant_dir: Path) -> None:
+    """Feature 2.7 (spec D7): promoted fleet skills reach the tenant at worker
+    start. A tenant's own skill with the same name always wins."""
+    fleet = Path(config.FLEET_SKILLS_DIR)
+    if not fleet.is_dir():
+        return
+    for skill in fleet.iterdir():
+        dest = tenant_dir / "skills" / skill.name
+        if skill.is_dir() and not dest.exists():
+            shutil.copytree(skill, dest)
 
 
 def _worker_env(session_id: str, tenant_dir: Path) -> dict:
@@ -175,7 +192,7 @@ def _worker_cmd(session_id: str, tenant_dir: Path) -> list[str]:
         "-v",
         f"{agents_dir}:/agents:ro",
         "-w",
-        "/hermes",
+        f"/hermes/trajectories/{session_id}",  # session trajectory dir (spec 2.7 D2)
         config.AGENT_DOCKER_IMAGE,
         "python",
         "/agents/hermes_worker.py",

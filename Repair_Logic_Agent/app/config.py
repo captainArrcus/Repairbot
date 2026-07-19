@@ -38,6 +38,11 @@ AGENT_TURN_TIMEOUT_S = float(os.getenv("AGENT_TURN_TIMEOUT_S", "180"))
 HERMES_HOME_ROOT = os.getenv(
     "HERMES_HOME_ROOT", f"{_REPO_ROOT}/Repair_Logic_Agent/agents/.hermes_home"
 )
+# Feature 2.7: fleet skill base — promoted skills land here, synced into every
+# tenant home at worker start (spec D6/D7)
+FLEET_SKILLS_DIR = os.getenv(
+    "FLEET_SKILLS_DIR", f"{_REPO_ROOT}/Repair_Logic_Agent/agents/.hermes_fleet_skills"
+)
 REPAIR_LLM_BASE_URL = os.getenv(
     "REPAIR_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"
 )
