@@ -1,0 +1,8 @@
+# EAS uploads only the mobile app. Everything else is backend/research/tenant
+# data — and docker-created root-owned dirs (.hermes_home) crash the archiver.
+/*
+!/RepairRöpiApp
+/RepairRöpiApp/*
+!/RepairRöpiApp/mobile
+/RepairRöpiApp/mobile/node_modules
+/RepairRöpiApp/mobile/.expo

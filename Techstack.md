@@ -11,7 +11,7 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                   RepairRöpiApp                         │
-│              (Mobile Frontend — TBD)                    │
+│         (Mobile Frontend — React Native + Expo)         │
 │         Camera · Mic · Touch · Streaming UI             │
 └─────────────────────┬───────────────────────────────────┘
                       │  SSE / HTTP
@@ -494,6 +494,11 @@ POST   /api/v1/sessions/{id}/turns               → Send user turn (text + medi
 GET    /api/v1/sessions/{id}/stream              → SSE stream of current agent response
 GET    /api/v1/sessions/{id}/turns/{tid}/events   → Replay events for a turn (resumability)
 GET    /api/v1/sessions/{id}                     → Get session state + full history
+                                                   (NOT implemented — the stream endpoint
+                                                   replays the full session on fresh
+                                                   connect, which covers app restore;
+                                                   spec 2.6 D3. Build when a consumer
+                                                   actually needs it.)
 ```
 
 ### Request: User Turn
@@ -589,7 +594,11 @@ data: {"status": "awaiting_verification"}
 
 ## Frontend Stack
 
-> **Decision deferred.** The API contract is framework-agnostic. The frontend is a thin client.
+> **Decision LOCKED (2026-07-19, Feature 2.6): React Native + Expo (SDK 57), TypeScript strict.**
+> The rule was "the choice follows the frontend developer's expertise" — the builder turned
+> out to be the coding agent on a Node-only machine (no Flutter/Dart, no Android SDK).
+> RN reuses the 1.4 prototype's JS contract logic, and Expo Go provides the on-phone dev
+> loop with zero SDK install. See `specs/2026-07-19_0309_feature_2.6_mobile_app/`.
 
 ### Requirements
 - Camera (photo + video), Microphone (voice on noisy floors)
@@ -597,16 +606,24 @@ data: {"status": "awaiting_verification"}
 - Android-first (rugged devices: CAT, Samsung XCover, Ulefone)
 - Visual-first UI (diagram-heavy, reduces multilingual burden)
 
-### Options
+### As built (Feature 2.6, `RepairRöpiApp/mobile/`)
+
+| Concern | Choice | Notes |
+|---|---|---|
+| Framework | **React Native + Expo SDK 57** | `create-expo-app` blank-typescript; APK via EAS cloud or `expo prebuild`+gradle (BUILD.md) |
+| SSE client | **react-native-sse** (pure JS) | Lib auto-reconnect off; screen reconnects with fresh `Last-Event-ID`; monotonic-id reducer dedupes replays |
+| Session restore | **SSE full replay** | Fresh connect replays the session — no `GET /sessions/{id}` needed (spec D3) |
+| Camera / Audio | **expo-image-picker / expo-audio** | System camera app; m4a voice notes, live metering = ambient-noise indicator |
+| Local state | **AsyncStorage** | Phone-local session list, user-turn log, offline pending-turn queue (per-media media_key write-back, fixed idempotency_key) |
+| Navigation | **none** | Two screens, conditional render — react-navigation when a third screen exists |
+
+### Decision record
 
 | Framework | Pros | Cons |
 |---|---|---|
-| **React Native** | JS ecosystem, strong native modules, Expo for rapid prototyping | Requires JS/TS expertise |
-| **Flutter** | AOT-compiled perf, pixel-perfect rendering across rugged device skins, excellent camera plugin | Dart ecosystem smaller |
+| **React Native** ✅ | JS ecosystem, strong native modules, Expo for rapid prototyping | Requires JS/TS expertise |
+| **Flutter** | AOT-compiled perf, pixel-perfect rendering across rugged device skins, excellent camera plugin | Dart ecosystem smaller; no toolchain on the build machine |
 | **PWA** | No app store | **Ruled out** — insufficient camera control on rugged hardware |
-
-> [!IMPORTANT]
-> **No recommendation until we know who builds it.** Both React Native and Flutter are viable. The choice follows the frontend developer's expertise. The API contract ensures the backend doesn't care.
 
 ---
 
@@ -710,9 +727,9 @@ Before this document becomes binding:
 
 - [x] **Phase 0 Knowledge Spike** — DONE 2026-07-10. Winner: hybrid (structured lookup + LLM over narrowed candidates). See `knowledge_spike/FINDINGS.md`.
 - [x] **hermes embed spike** — DONE 2026-07-12, **GO** (commit `4281151` pinned). All four questions pass: (a) streaming maps to our SSE types, (b) skills/memory work as a library — but only with hermes' own learning tools on the allowlist (`skills_list`, `skill_view`, `skill_manage`, `memory`; amends "exactly 4 domain tools" in §Guardrails), (c) per-tenant `HERMES_HOME` isolation holds (parallel sessions, zero bleed), (d) trajectory export works (ShareGPT JSONL). See `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`.
-- [ ] **Frontend developer identified**: Lock React Native vs. Flutter based on their expertise
+- [x] **Frontend framework locked** — DONE 2026-07-19 (Feature 2.6). "Who builds it" resolved to the coding agent; React Native + Expo SDK 57 chosen (Node toolchain present, Expo Go dev loop, 1.4 JS contract reuse). See `specs/2026-07-19_0309_feature_2.6_mobile_app/requirements.md` D1.
 - [x] **Langfuse deployed** — DONE 2026-07-12 (Feature 1.0). Self-hosted v3 in `Repair_Logic_Agent/infra/docker-compose.yml` (web + worker + ClickHouse + Redis; Postgres/MinIO shared with the dev stack). Dev keys provisioned via `LANGFUSE_INIT_*` — see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 ---
 
-*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/); 2026-07-19: findings review — egress table corrected (LLM+models.dev only), eval metric → top-1 accuracy, dev-model reality noted, STT GPU decision → 3.1, corpus ingestion → knowledge crawler (Roadmap 4.4)*
+*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/); 2026-07-19: findings review — egress table corrected (LLM+models.dev only), eval metric → top-1 accuracy, dev-model reality noted, STT GPU decision → 3.1, corpus ingestion → knowledge crawler (Roadmap 4.4); Feature 2.6 landed: frontend locked to React Native + Expo SDK 57, app built (specs/2026-07-19_0309_feature_2.6_mobile_app/)*

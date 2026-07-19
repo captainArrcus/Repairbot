@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works; the real integrated test target is the mobile app, Feature 2.6, which is deliberately NOT gated on anything). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -364,24 +364,45 @@ Feature 2.5 — AgentService: embedded hermes AIAgent + guardrails + Pydantic st
         the isolated container (AGENT_RUNNER=docker).
     Spec + acceptance evidence: specs/2026-07-18_2246_feature_2.5_agent_service/
 
-Feature 2.6 — Mobile App V1 (RN or Flutter) — build the real app (owner: FE + PM) — 80h
+Feature 2.6 — Mobile App V1 — build the real app (owner: FE + PM) — 80h — **[BUILT 2026-07-19, dev-verified; on-phone Expo Go run + APK on rugged device = field runbook, spec FINDINGS]**
 
+    Framework LOCKED (spec D1, Techstack checklist closed): React Native + Expo (SDK 57),
+    TypeScript strict. Rationale: builder = coding agent on a Node-only machine; Expo Go
+    delivers the on-phone dev loop with zero Android SDK (the 1.4 field-test pattern).
     Target: Android (ruggeds); iOS optional later.
-    Repo path: repairropi_app/mobile/
-    Key screens:
-        SessionList / NewSession
-        SessionScreen (SSE stream view): top area shows "agent thinking", hypothesis panel, question card (primary CTA), evidence submission (photo, audio, text), verification upload, final diagnosis card
-    Required features:
-        Presigned upload flow (from web prototype)
-        SSE client with Last-Event-ID & replay on reconnect
-        Evidence capture widgets: camera, audio recorder (with ambient noise indicator), quick numeric input (e.g., "enter mm")
-        Offline resilience: cache uploaded media_keys pending network; sync on reconnect (but offline-first full not required)
-    Files / components (React Native):
-        screens/SessionScreen.js
-        components/HypothesisList.js
-        services/api.js (presigned upload + turns + SSE helper)
+    Repo path: RepairRöpiApp/mobile/ (real dir)
+    Key screens (as built):
+        SessionList / NewSession — phone-local list (AsyncStorage; no backend index needed, spec D10)
+        SessionScreen (SSE stream view): status/thinking row, hypothesis panel, question card
+        (primary CTA highlights the requested evidence type), evidence submission (photo,
+        audio, numeric/text), verification + outcome card (POST /outcome — Data-Bridge
+        closure from the phone, spec D8), diagnosis card, guidance list with high-safety
+        confirm CTA (2.5 safety-gate contract, spec D7)
+    Required features (as built):
+        Presigned upload flow (presign + blob PUT, signed Content-Type)
+        SSE client (react-native-sse) — screen-owned reconnect w/ fresh Last-Event-ID;
+        session restore = full replay through a monotonic-id reducer (spec D3/D4 —
+        GET /sessions/{id} deliberately NOT built)
+        Evidence widgets: system camera (expo-image-picker), audio recorder w/ live
+        metering as ambient-noise indicator (expo-audio, m4a), decimal keyboard +
+        required_format hint on numeric questions
+        Offline resilience: single pending-turn queue in AsyncStorage, per-media
+        media_key write-back (uploads survive retries), fixed idempotency_key,
+        8s auto-retry; 409 retries, 422/404 drops (spec D5)
+    Files / components (as built, .tsx not .js):
+        App.tsx (two screens, conditional render — no navigation lib, spec D2)
+        screens/SessionListScreen.tsx, screens/SessionScreen.tsx
+        components/HypothesisList.tsx, components/theme.ts
+        services/api.ts, services/events.ts (+ node --test suite), services/store.ts
+        BUILD.md (Expo Go loop; APK via EAS cloud OR expo prebuild + gradle)
     Acceptance:
         Installable APK runs on rugged Android and can run end-to-end test: capture photo, upload, create turn, receive SSE events, respond to question, receive diagnosis, upload verification photo, export session shows trace.
+        Status: flow implemented; contract dev-verified (typecheck, 5/5 reducer tests,
+        Metro android bundle, live smoke: scripted-backend session replayed through the
+        real reducer). APK BUILT 2026-07-19 via EAS cloud (install link in spec
+        FINDINGS; repo-root .easignore keeps backend/tenant data out of the upload).
+        Remaining: rugged-device end-to-end field test.
+    Spec + acceptance evidence: specs/2026-07-19_0309_feature_2.6_mobile_app/
 
 Feature 2.7 — Learning Pipeline v1: field → cloud (owner: ML + BE) — 32h
 
