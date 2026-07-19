@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -439,6 +439,55 @@ Feature 2.8 — Controller-family normalization (owner: BE) — 4h
     Acceptance:
         lookup("SINUMERIK", "AL 309") exact-hits without the family=None retry;
         the 2.5 dispatcher retry becomes dead code and is removed.
+
+Feedback round 1 — first app field test (2026-07-19)
+User feedback: (a) no visual distinction between what the user sent and what the agent answered; (b) captured photo not shown — neither immediately on capture nor in the conversation; (c) voice recording works but the transcript is invisible before send, so the user cannot verify what was understood; (d) the stream "just matches input text" — root cause: the field test ran the DEFAULT scripted backend (AGENT_BACKEND=scripted, 2.5 D7); the interactive hermes agent (thinking/planning) is opt-in and never reached the phone. Features 2.9–2.11 close this, ordered so each is field-testable on its own; 2.11 depends on 2.9 (rendering).
+
+Feature 2.9 — Chat conversation view: user turns + inline media (owner: FE) — 16h
+
+    Objective: SessionScreen reads as a conversation — who said what, media inline.
+    Repo path: RepairRöpiApp/mobile/ (screens/SessionScreen.tsx, services/events.ts reducer)
+    Changes:
+        Render USER turns as visually distinct chat bubbles (right-aligned: text + media);
+        agent events stay left/full-width. User turns are a local echo at submit time —
+        no backend change needed.
+        Photo: thumbnail in the composer IMMEDIATELY on capture (local uri from
+        expo-image-picker) so the user sees what will be sent; same image rendered inline
+        in the sent user-turn bubble.
+        Audio: chip in the user bubble (duration); transcript display = Feature 2.10.
+    Acceptance (field-testable alone, scripted backend suffices):
+        Take photo → thumbnail visible before send; send turn → photo + text appear as a
+        user bubble; agent output clearly distinguishable from user input.
+
+Feature 2.10 — Voice transcript echo before send (owner: BE + FE) — 12h
+
+    Objective: user must SEE (and can correct) what STT understood BEFORE it drives the diagnosis.
+    Backend: POST /api/v1/media/{media_key}/transcribe → runs the 2.4 STT pipeline
+        (app/tools/stt.py) standalone, returns { transcript, confidence }. Reuses the tool as-is.
+    App: after audio upload, call transcribe and put the transcript into the text field
+        (editable); user corrects, then sends TEXT (audio media_key stays attached for the
+        Data Bridge).
+    Turn pipeline: skip STT when the turn already carries user text (text-presence check in
+        the agent_service media routing, extends 2.4 D7) — no double transcription.
+    Acceptance:
+        Record voice note → transcript appears in the text field → edit one word → send →
+        agent works with the edited text; event stream shows no second stt tool_call.
+
+Feature 2.11 — Hermes agent in the field (owner: ML + FE) — 16h — depends on 2.9
+
+    Objective: the interactive thinking/planning agent built in 2.5 actually reaches the phone —
+    every field test so far exercised the scripted mock.
+    Steps:
+        Dev/field environment defaults to AGENT_BACKEND=hermes (scripted stays the CI/golden
+        default, 2.5 D7); document the switch in the field-test runbook.
+        Verify thinking / tool_call / tool_result events render legibly in the 2.9
+        conversation view (streamed thinking as an agent bubble, tool calls as compact
+        status rows — the raw stream exists since 2.5, the app must show it).
+        On-phone field run: panel photo → visible thinking → hypotheses → discriminating
+        question → answer → diagnosis.
+    Acceptance:
+        On-phone session against AGENT_BACKEND=hermes shows visible thinking/planning and at
+        least one discriminating question; feedback item (d) "where is the agent?" closed.
 
 PHASE 3 — Field Deployment (Weeks 9–12)
 Goal: cloud deploy, pilots, metric capture.
