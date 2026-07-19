@@ -146,6 +146,8 @@ Implementation: hermes' `AIAgent` runs a tool-calling loop with typed tool calls
 | **Later MVP stage:** production models | **Open models — Mistral, GLM, DeepSeek** | Cost + EU data sovereignty. Switch is a LiteLLM proxy config change; the golden test harness gates the swap (no migration below the harness threshold). |
 | **Phase 4+ option:** fine-tuned repair model | Open base + our trajectories | The learning pipeline collects the training set from day one (hermes trajectory format) |
 
+> **Dev reality (0.1/0.2/2.5 runs):** all spikes and acceptance runs used `gemini-3.1-flash-lite` — the 2.5 Flash free tier (~20 req/day/project) is unusable for development. Flash-lite results are a lower bound on LLM value; paid Flash remains the prod intent. Known flash-lite weakness: imperfect language discipline (English replies to German input, 2.5 finding #5) — golden-harness item, Feature 3.2.
+
 ---
 
 ## Learning Pipeline — Field → Cloud
@@ -208,6 +210,10 @@ CNC machine documentation is a nightmare of entropy:
 > until the PDF manual corpus is ingested. `get_page_image`/`get_compiled_article` are
 > honestly empty (no document corpus, no wiki pipeline) per the shootout outcome.
 > See `specs/2026-07-18_1740_feature_2.2_knowledge_tools/`.
+>
+> **Corpus ingestion = future knowledge crawler** (manuals + CNC online forums), Roadmap
+> Feature 4.4 — deliberately out of Phase 2/3 scope (ratified 2026-07-19). Until then the
+> knowledge layer stays the structured error-code spine.
 
 The cofounder correctly identified that a single `search(query, top_k)` interface is biased toward RAG. Different knowledge types need different access patterns:
 
@@ -276,7 +282,7 @@ We'll evaluate this alongside classic RAG and VLM in the Phase 0 spike.
 |---|---|---|
 | **UI language** | German + English | Full multilingual UI deferred to Phase 2 |
 | **Agent conversation language** | German | System prompts in English (better LLM performance), user-facing output in German. Agent auto-detects user language. |
-| **STT (Speech-to-Text)** | **Whisper large-v3** (local) | German Tier 1 language, <5% WER on clean audio. Factory noise adds 5–15% WER — acceptable with audio preprocessing. Run locally for privacy/latency. **Implemented (Feature 2.4):** `app/tools/stt.py`, `WHISPER_MODEL` config (large-v3 default; no-GPU dev boxes run `base`), forced German via `STT_LANGUAGE`. |
+| **STT (Speech-to-Text)** | **Whisper large-v3** (local) | German Tier 1 language, <5% WER on clean audio. Factory noise adds 5–15% WER — acceptable with audio preprocessing. Run locally for privacy/latency. **Implemented (Feature 2.4):** `app/tools/stt.py`, `WHISPER_MODEL` config (large-v3 default; no-GPU dev boxes run `base`), forced German via `STT_LANGUAGE`. **Open deploy decision (Feature 3.1):** large-v3 needs a GPU — GPU host vs. smaller model vs. hosted STT, decided before VPS sizing. |
 | **STT preprocessing** | Noise reduction before Whisper | Spectral subtraction / noise gate. Factory floors are loud. **Implemented (Feature 2.4):** noisereduce spectral gating softened to 0.75 — full-strength gating measurably *hurts* Whisper (noise-robust by training); re-tune against field recordings (spec 2.4 D3). |
 | **Embedding model** (if RAG) | **Multilingual model required** | e.g., `multilingual-e5-large` or Cohere multilingual. Most OSS embedders are Anglo-centric — this is a product-market fit risk. |
 | **Prompt language** | English system prompt + German user content | LLMs reason better in English. Output language follows user input. |
@@ -305,7 +311,7 @@ We'll evaluate this alongside classic RAG and VLM in the Phase 0 spike.
 | Component | Purpose | Implementation |
 |---|---|---|
 | **Golden test set** | Regression testing when swapping models or changing prompts | `pytest`-based harness with 20+ diagnostic scenarios (error code + symptoms → expected diagnosis) |
-| **Automated eval** | Run golden set on every model/prompt change | CI job: `pytest tests/eval/` — fail if recall drops below threshold |
+| **Automated eval** | Run golden set on every model/prompt change | CI job: `pytest tests/eval/` — fail if **top-1 accuracy** drops below threshold (top-3 recall is a metric artifact until the golden-label taxonomy is aligned with the alarm DB — 0.1 finding, first task of Feature 3.2) |
 | **Trace quality validation** | Ensure Data Bridge traces are actually structured, not raw chat logs | Schema validation on every persisted trace — reject malformed traces |
 | **A/B model comparison** | Compare Gemini vs. Claude on same scenarios | Langfuse experiment tracking |
 
@@ -643,7 +649,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 | Deployment | **Cloud-first, multi-tenant** | Single VPS or managed containers. No k8s for Phase 1. |
 | Object Storage | **Cloud S3** (Hetzner/Scaleway/AWS) | No self-hosted MinIO. Less to operate. |
 | Secrets | **.env** (local), **CI secrets** (prod) | Document migration path for SME security audits. |
-| Agent containment | **Egress-isolated container + tool allowlist** | No code-execution path (tool-calling only). Dual-network Docker pattern per hermes' egress-isolation doc; proxy allowlists LLM endpoints, S3, Langfuse. |
+| Agent containment | **Egress-isolated container + tool allowlist** | No code-execution path (tool-calling only). Dual-network Docker pattern per hermes' egress-isolation doc; proxy allowlists **LLM endpoint domains + models.dev only** — domain tools run parent-side via RPC, so S3/Langfuse egress belongs to the API process, not the agent (2.5 finding, verified). |
 | Rate limiting | **Noted for Phase 2** | Not urgent, but noted. |
 
 ---
@@ -709,4 +715,4 @@ Before this document becomes binding:
 
 ---
 
-*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/)*
+*Stand: Juli 2026 — v3: hermes-agent backbone, multi-tenant cloud, learning pipeline; 2026-07-18: visual-grounding track + machine-knowledge-pack invariant added; Feature 2.5 landed: worker-process embed, parent-side tool RPC, egress isolation verified (specs/2026-07-18_2246_feature_2.5_agent_service/); 2026-07-19: findings review — egress table corrected (LLM+models.dev only), eval metric → top-1 accuracy, dev-model reality noted, STT GPU decision → 3.1, corpus ingestion → knowledge crawler (Roadmap 4.4)*

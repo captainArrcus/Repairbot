@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 dev-verified; on-phone field test = user runbook in spec). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4 and 2.5 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works; the real integrated test target is the mobile app, Feature 2.6, which is deliberately NOT gated on anything). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -203,7 +203,7 @@ Feature 1.3 — FastAPI wrapper + SSE stream (owner: BE + ML) — 24h — **[DON
         SSE returns events with event: hypothesis \n id: 1.3 \n data: {...}\n\n etc.
     Spec + acceptance evidence: specs/2026-07-12_1835_feature_1.3_sse_api/
 
-Feature 1.4 — Dirty web prototype (owner: FE) — 24h — **[DONE 2026-07-12, dev-verified]**
+Feature 1.4 — Dirty web prototype (owner: FE) — 24h — **[DONE 2026-07-12; field-tested on phone 2026-07-19]**
 
     Repo: RepairRöpiApp/web_prototype/ (real frontend dir; spec D1)
     Files:
@@ -406,6 +406,19 @@ Feature 2.7 — Learning Pipeline v1: field → cloud (owner: ML + BE) — 32h
         lands in the curation queue; promotion copies it to the fleet skill base and a tenant-B
         session can then use it.
 
+Feature 2.8 — Controller-family normalization (owner: BE) — 4h
+
+    Closes the 2.2-D2 gap that bit twice (2.3: brand-level vision result; 2.5 finding #2:
+    exact lookup missed because the model says "SINUMERIK" while seeds store
+    "SINUMERIK_840D_sl" — the family=None retry masks it, doesn't solve it).
+    Canonical family-alias map (data, not code): brand + variant strings → seeded
+    controller_family values, owned by app/tools/error_code_lookup.py alongside the
+    existing code normalization.
+    Small and independent — does NOT gate 2.6 or 2.7.
+    Acceptance:
+        lookup("SINUMERIK", "AL 309") exact-hits without the family=None retry;
+        the 2.5 dispatcher retry becomes dead code and is removed.
+
 PHASE 3 — Field Deployment (Weeks 9–12)
 Goal: cloud deploy, pilots, metric capture.
 
@@ -416,14 +429,27 @@ Feature 3.1 — Cloud deployment + Docker Compose (owner: BE + infra) — 16h
     Deliverables:
         infra/prod-docker-compose.yml
         deploy README with env var values to set (DB_URL, S3 creds, LITELLM_API_KEY, LANGFUSE_KEY)
+    Decisions forced here (2.4/2.5 findings):
+        STT deployment: Whisper large-v3 needs a GPU — decide GPU host vs. WHISPER_MODEL=base/small
+        vs. hosted STT API BEFORE sizing the VPS (currently an unpriced contradiction with
+        "single VPS").
+        Inline tool latency: STT/vision run inline in the synchronous turn (2.4 D1) — move to
+        background jobs only if pilot latency demands it.
+        Also lands here (2.5 open items): LiteLLM proxy service (env swap by design),
+        CORS tightening to real origins.
     Acceptance:
         Prod endpoint reachable; a smoke test script verify_connectivity.sh hits /health and performs a small simulated session.
 
 Feature 3.2 — Golden test harness & CI gating (owner: QA + ML) — 16h
 
+    First task (0.1 finding): align the golden-case label taxonomy with the alarm-DB
+        related_components field (or enrich alarm records with symptom/positional tags) —
+        top-3 recall is a metric artifact until this is done.
     Implement tests/golden/ harness (pytest) that:
         executes the agent pipeline in CI using a deterministic model mock or small local model and the seeded docs
-        asserts top-1/top-3 recall and that agent asks at least one clarifying question for each case
+        asserts top-1 accuracy (primary metric per 0.1 finding; top-3 recall only after
+        taxonomy alignment) and that agent asks at least one clarifying question for each case
+        checks prompt-language discipline (German user text → German agent output; 2.5 finding #5)
     Hook into GitHub Actions to run on PRs, fail on regressions
     Acceptance: CI passes on baseline; PRs must run harness
 
@@ -431,7 +457,10 @@ Feature 3.3 — Pilot onboarding & monitoring (owner: PM + QA) — 40h
 
     Pilot pack:
         runbook: how-to install app, consent form, sample photos to capture, support contact
-        monitoring: Langfuse traces per session, dashboard of metrics (diagnostic time, turns/session, top3 accuracy sample)
+        monitoring: Langfuse traces per session, dashboard of metrics (diagnostic time, turns/session, top-1 accuracy sample)
+    Data gate (1.1 finding): verify the 5 non-SIOS-verified seed error codes
+        (source column marks them: 3000, 10720, 25050, 300500, 600607) against SIOS
+        BEFORE any pilot relies on them.
     Acceptance:
         2–3 technicians run 10 sessions each; PM collects usage and feedback; QA calculates diagnostic time delta vs baseline.
 
@@ -455,6 +484,17 @@ Feature 4.3 — Schematic-to-photo grounding: point to the problem (owner: ML)
 
     Parse schematics/exploded views (docling — already in the stack), match diagram to user photo via keypoint detection + pose estimation (port the prototype's find_board_keypoints/pose_estimation approach, minus calibration targets — single-photo homography, degrade gracefully to "no grounding, text only"), project the fault/part location from diagram onto photo.
     Acceptance: golden set of (diagram, photo, target part) triples; projected marker lands on the correct part ≥80%.
+
+Feature 4.4 — Knowledge crawler: manuals + CNC forum corpus (owner: ML + BE)
+
+    Closes the document-corpus gap (0.1/2.2 findings: search_semantic is FTS over 20 error-code
+    rows, get_page_image is honestly empty, docling still unused) — deliberately OUT of Phase 2/3
+    scope (ratified 2026-07-19).
+    A crawler that inhales not just the machine manuals but also CNC online-forum threads
+    (symptom language, workarounds, tribal knowledge) into the knowledge layer.
+    Unblocks the deferred 2.2-D3 upgrade (indexed/embedding-backed search_semantic, real
+    page-image store) and the RAG-vs-VLM question deferred since the 0.1 spike.
+    Acceptance: defined when scheduled.
 
 Cross-cutting features (must be done early)
 
@@ -501,81 +541,6 @@ Exact SSE event schema (canonical — must be implemented verbatim)
 
     { "id": "<event_uuid>", "status": "awaiting_user_input|awaiting_verification|complete" }
 
-Entry points for the coding agent — prioritized actionable tasks
-These are the exact first tasks you should send to the coding agent in order. Each entry says file(s) to create, CLI command to run, and acceptance test.
-
-    Create repos & project skeleton (repair_logic_agent)
-
-    Files to create:
-        repair_logic_agent/pyproject.toml (dependencies: fastapi, uvicorn, pydantic>=2, httpx, hermes-agent @ pinned git commit, litellm, psycopg[binary], boto3, langfuse, pytest, ruff, pytesseract, faiss-cpu or simple in-memory index)
-        repair_logic_agent/app/main.py (FastAPI app with /health)
-        repair_logic_agent/infra/docker-compose.yml (postgres:13, minio, optional langfuse)
-    Command:
-        git init repair_logic_agent && cd repair_logic_agent
-        python -m venv .venv && .venv/bin/pip install -r requirements.txt
-        docker-compose up -d
-    Acceptance:
-        curl http://localhost:8000/health → returns {"status":"ok"}
-
-    Add DB migration (repair_logic_agent/db/migrations/001_create_schema.sql)
-
-    Copy the SQL schema from the architecture doc, plus diagnostic_turn_events table and error_codes table.
-    Command (corrected, spec feature_1.1 D1):
-        docker compose -f infra/docker-compose.yml exec -T postgres psql -U postgres -d repair -v ON_ERROR_STOP=1 < db/migrations/001_create_schema.sql
-    Acceptance:
-        docker compose -f infra/docker-compose.yml exec postgres psql -U postgres -d repair -c '\dt' shows tables
-
-    Add golden fixtures (repair_logic_agent/knowledge_spike/golden_cases.yaml + docs/)
-
-    Place PDFs and images in that folder.
-    Acceptance:
-        python knowledge_spike/validate_fixtures.py --cases knowledge_spike/golden_cases.yaml returns OK
-
-    Implement minimal RAG prototype (repair_logic_agent/knowledge_spike/rag_spike.py)
-
-    Implement ingest → embed → search flow (use a small embedder to avoid external API).
-    Acceptance:
-        python knowledge_spike/rag_spike.py --query "AL 309 rattling x axis" returns top-3 pages and prints whether ground_truth found.
-
-    Implement CLI agent harness (repair_logic_agent/agents/run_cli.py)
-
-    Embed hermes run_agent.AIAgent (or fallback to litellm sequential calls if the embed spike fails); ensure the CLI can call knowledge_retrieval(query) tool and answer the four spike questions from Feature 0.2
-    Acceptance:
-        python agents/run_cli.py
-        Provide input "AL 309" -> agent prints JSON hypothesis and question
-
-    Wrap CLI in FastAPI with SSE (repair_logic_agent/app/api/sessions.py)
-
-    Implement endpoints and SSE streaming using EventSourceResponse
-    Acceptance:
-        Start server: uvicorn app.main:app --reload
-        Create session: curl -X POST http://localhost:8000/api/v1/sessions -> session_id
-        POST turn and open SSE: curl -N http://localhost:8000/api/v1/sessions/{id}/stream -> see events
-
-    Dirty web prototype (RepairRöpiApp/web_prototype/)
-
-    Create index.html and app.js to call presigned URL endpoint + SSE
-    Acceptance:
-        Python static server + phone browser -> can take photo, upload, and receive events from SSE
-
-    Add VisionAnalysisTool stub (repair_logic_agent/app/tools/vision_analysis.py)
-
-    Implement analyze(media_key) that fetches image and runs pytesseract; return controller guess via simple heuristics (e.g., regex matching for Fanuc/Siemens patterns)
-    Acceptance:
-        Run a script that loads sample image and prints detected codes and controller.
-
-    Add presigned upload endpoint (repair_logic_agent/app/api/media.py)
-
-    Implement using boto3 and test via curl PUT
-    Acceptance:
-        POST -> get upload_url, curl -T -> GET object via boto3 list_objects
-
-    Integrate Langfuse minimal tracing for LLM calls (repair_logic_agent/app/services/observability.py)
-
-    Add a wrapper to call LiteLLM with Langfuse callback tags (session_id)
-    Acceptance:
-        Running a small demo generates a trace in Langfuse dev instance
-
 Acceptance criteria for moving from phase to phase
 
     End of Phase 0 (Week 2)
@@ -583,21 +548,9 @@ Acceptance criteria for moving from phase to phase
         CLI agent (hermes embed) that makes at least one discriminating question in toy session
         + GO/NO-GO on hermes documented (Feature 0.2 spike questions)
     End of Phase 1 (Week 4)
-        SSE API accepts media, streams typed events, and dirty web prototype runs on phone for a first field test
+        [DONE 2026-07-19] SSE API accepts media, streams typed events, and dirty web prototype runs on phone for a first field test — user-verified on phone, full flow works
     End of Phase 2 (Week 8)
         Full Data Bridge persistence working, Vision + STT integrated, guardrails verified (tool allowlist, egress isolation, cross-tenant leak test), learning pipeline v1 delivering trajectories + skills to cloud, and mobile v1 can run an end-to-end diagnostic flow
     End of Phase 3 (Week 12)
         Pilot customers onboarded; basic metrics collected and initial diagnostic time delta measured
 
-Small checklist you can hand to the coding agent now (top 10 atomic issues)
-
-    (BE) Create repo repair_logic_agent and add pyproject.toml + app/main.py health endpoint.
-    (BE) Add docker-compose with Postgres + MinIO dev, and start services.
-    (PM) Add golden_cases.yaml and upload 20 manual pages to repair_logic_agent/knowledge_spike/docs/.
-    (ML) Implement rag_spike.py that can return top-3 pages for a query and a simple evaluator.
-    (ML) Implement run_cli.py embedding hermes AIAgent (or fallback to litellm) that calls knowledge_retrieval tool.
-    (BE) Implement DB migration 001_create_schema.sql and run it against dev Postgres.
-    (BE) Implement POST /api/v1/media/upload-url and test presigned PUT.
-    (BE+ML) Implement basic AgentService that can accept a turn, call knowledge tool, produce a hypothesis event, and stream via SSE.
-    (FE) Create repairropi_app/web_prototype/index.html that can capture a photo and call the presigned flow and SSE.
-    (QA) Create tests/golden/test_rag_recall.py that validates top-3 recall for the RAG prototype.

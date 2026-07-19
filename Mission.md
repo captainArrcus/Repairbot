@@ -194,7 +194,10 @@ These are things we **will not build** in Phase 1, regardless of how tempting th
 
 ## The Two-Repo Discipline
 
-| Repository | Purpose |
+> Reality check (Feature 1.0): this is one git repository with two top-level directories.
+> The discipline is the *boundary* — the API contract — not the git split.
+
+| Directory | Purpose |
 |---|---|
 | **Repair_Logic_Agent** | Backend: agent reasoning, tool execution, document retrieval, API |
 | **RepairRöpiApp** | Frontend: mobile UI, camera/mic access, user interaction |
