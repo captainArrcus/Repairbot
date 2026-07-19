@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field); 2.9 is BUILT and dev-verified (on-phone check = field runbook). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -459,10 +459,14 @@ Feature 2.8 — Controller-family normalization (owner: BE) — 4h — **[DONE 2
 Feedback round 1 — first app field test (2026-07-19)
 User feedback: (a) no visual distinction between what the user sent and what the agent answered; (b) captured photo not shown — neither immediately on capture nor in the conversation; (c) voice recording works but the transcript is invisible before send, so the user cannot verify what was understood; (d) the stream "just matches input text" — root cause: the field test ran the DEFAULT scripted backend (AGENT_BACKEND=scripted, 2.5 D7); the interactive hermes agent (thinking/planning) is opt-in and never reached the phone. Features 2.9–2.11 close this, ordered so each is field-testable on its own; 2.11 depends on 2.9 (rendering).
 
-Feature 2.9 — Chat conversation view: user turns + inline media (owner: FE) — 16h
+Feature 2.9 — Chat conversation view: user turns + inline media (owner: FE) — 16h — **[BUILT 2026-07-20, dev-verified; on-phone photo→thumbnail→bubble check = field runbook]**
 
     Objective: SessionScreen reads as a conversation — who said what, media inline.
     Repo path: RepairRöpiApp/mobile/ (screens/SessionScreen.tsx, services/events.ts reducer)
+    As built: LogEntry.kind ("user"/"agent") — the reducer log is the conversation;
+        user log entries carry photoUri/audioDurationMs (old stored entries restore fine);
+        BubblePhoto degrades to a chip if the cache uri is gone (S3 copy is authoritative).
+        2.11 extends this same kind-dispatched list for thinking/tool bubbles.
     Changes:
         Render USER turns as visually distinct chat bubbles (right-aligned: text + media);
         agent events stay left/full-width. User turns are a local echo at submit time —

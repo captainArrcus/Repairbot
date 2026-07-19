@@ -16,6 +16,7 @@ export type PendingMedia = {
   localUri: string;
   contentType: string;
   filename: string;
+  durationMs?: number | null; // audio only — shown in the user bubble (2.9)
   mediaKey: string | null; // set once uploaded — survives retries (Roadmap: cache uploaded media_keys)
 };
 

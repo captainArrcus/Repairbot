@@ -27,7 +27,16 @@ export type Diagnosis = {
   explanation: string;
 };
 
-export type LogEntry = { key: string; sortKey: number; text: string };
+// Feature 2.9 — the log IS the conversation: user entries render as chat
+// bubbles (right, with inline media), agent entries as compact status lines.
+export type LogEntry = {
+  key: string;
+  sortKey: number;
+  text: string;
+  kind: "user" | "agent";
+  photoUri?: string | null;
+  audioDurationMs?: number | null;
+};
 
 export type SessionView = {
   hypotheses: Hypothesis[];
@@ -73,9 +82,13 @@ function isStale(view: SessionView, wireId: string | null | undefined): boolean 
   return next[0] < last[0] || (next[0] === last[0] && next[1] <= last[1]);
 }
 
-function withLog(view: SessionView, text: string, sortKey: number, key: string): SessionView {
-  if (view.log.some((l) => l.key === key)) return view;
-  return { ...view, log: [...view.log, { key, sortKey, text }].sort((a, b) => a.sortKey - b.sortKey) };
+function withLog(view: SessionView, entry: LogEntry): SessionView {
+  if (view.log.some((l) => l.key === entry.key)) return view;
+  return { ...view, log: [...view.log, entry].sort((a, b) => a.sortKey - b.sortKey) };
+}
+
+function agentLog(view: SessionView, text: string, sortKey: number, key: string): SessionView {
+  return withLog(view, { key, sortKey, text, kind: "agent" });
 }
 
 // Agent events sort by wire position; a user turn precedes the agent turn that
@@ -149,26 +162,39 @@ export function applyEvent(
         question: null,
       };
     case "tool_call":
-      return withLog(next, `🔧 ${data.tool}`, sortKey, key);
+      return agentLog(next, `🔧 ${data.tool}`, sortKey, key);
     case "tool_result":
-      return withLog(next, `✅ ${data.tool}: ${data.result_summary ?? ""}`, sortKey, key);
+      return agentLog(next, `✅ ${data.tool}: ${data.result_summary ?? ""}`, sortKey, key);
     case "done":
       return { ...next, doneStatus: data.status ?? null, busy: false, thinking: "" };
     default:
-      return withLog(next, `${type}: ${JSON.stringify(data)}`, sortKey, key);
+      return agentLog(next, `${type}: ${JSON.stringify(data)}`, sortKey, key);
   }
 }
 
-export type UserLogEntry = { text: string; sortKey: number; key: string };
+export type UserLogEntry = {
+  text: string;
+  sortKey: number;
+  key: string;
+  photoUri?: string | null;
+  audioDurationMs?: number | null;
+};
+
+export type UserMedia = { photoUri?: string | null; audioDurationMs?: number | null };
 
 // Build the entry from the current view, persist it, then apply — same sortKey
 // in storage and on screen.
-export function userEntry(view: SessionView, text: string, at: number = Date.now()): UserLogEntry {
-  return { text, sortKey: (view.lastTurnIndex + 0.5) * 1000, key: `user-${at}` };
+export function userEntry(
+  view: SessionView,
+  text: string,
+  media: UserMedia = {},
+  at: number = Date.now()
+): UserLogEntry {
+  return { text, ...media, sortKey: (view.lastTurnIndex + 0.5) * 1000, key: `user-${at}` };
 }
 
 export function applyUserEntries(view: SessionView, entries: UserLogEntry[]): SessionView {
-  return entries.reduce((v, e) => withLog(v, `👤 ${e.text}`, e.sortKey, e.key), view);
+  return entries.reduce((v, e) => withLog(v, { kind: "user", ...e }), view);
 }
 
 export function withBusy(view: SessionView, busy: boolean): SessionView {

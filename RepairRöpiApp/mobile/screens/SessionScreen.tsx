@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -43,7 +44,16 @@ import {
 
 type Props = { sessionId: string; onBack: () => void };
 
-type Attachment = { uri: string; type: string; name: string };
+type Attachment = { uri: string; type: string; name: string; durationMs?: number };
+
+// 2.9 D3: local-uri echo; the cache file can vanish → degrade to a chip.
+function BubblePhoto({ uri }: { uri: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <Text style={styles.bubbleChip}>📷 Foto</Text>;
+  return (
+    <Image source={{ uri }} style={styles.bubblePhoto} resizeMode="cover" onError={() => setFailed(true)} />
+  );
+}
 
 export default function SessionScreen({ sessionId, onBack }: Props) {
   const [view, setView] = useState<SessionView>(emptyView());
@@ -136,14 +146,15 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
         text: p.text,
         media_keys: keys,
       });
-      const label = [
-        p.text,
-        p.media.some((m) => m.contentType.startsWith("image/")) ? "📷" : "",
-        p.media.some((m) => m.contentType.startsWith("audio/")) ? "🎤" : "",
-      ]
+      const photoMedia = p.media.find((m) => m.contentType.startsWith("image/"));
+      const audioMedia = p.media.find((m) => m.contentType.startsWith("audio/"));
+      const label = [p.text, photoMedia ? "📷" : "", audioMedia ? "🎤" : ""]
         .filter(Boolean)
         .join(" ");
-      const entry = userEntry(viewRef.current, label);
+      const entry = userEntry(viewRef.current, p.text, {
+        photoUri: photoMedia?.localUri ?? null,
+        audioDurationMs: audioMedia?.durationMs ?? null,
+      });
       await appendUserLog(sessionId, entry);
       if (viewRef.current.lastTurnIndex === 0)
         await upsertSession({ id: sessionId, label: label.slice(0, 60) });
@@ -175,6 +186,7 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
         localUri: m.uri,
         contentType: m.type,
         filename: m.name,
+        durationMs: m.durationMs ?? null,
         mediaKey: null,
       })),
     };
@@ -207,9 +219,10 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
 
   async function toggleRecording() {
     if (recState.isRecording) {
+      const durationMs = recState.durationMillis ?? 0;
       await recorder.stop();
       if (recorder.uri)
-        setAudio({ uri: recorder.uri, type: "audio/m4a", name: "sprachnotiz.m4a" });
+        setAudio({ uri: recorder.uri, type: "audio/m4a", name: "sprachnotiz.m4a", durationMs });
       return;
     }
     const perm = await AudioModule.requestRecordingPermissionsAsync();
@@ -346,12 +359,24 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
 
         {view.log.length > 0 && (
           <View>
-            <Text style={styles.heading}>Protokoll</Text>
-            {view.log.map((l) => (
-              <Text key={l.key} style={styles.logLine}>
-                {l.text}
-              </Text>
-            ))}
+            <Text style={styles.heading}>Verlauf</Text>
+            {view.log.map((l) =>
+              l.kind === "user" ? (
+                <View key={l.key} style={styles.userBubble}>
+                  {l.photoUri ? <BubblePhoto uri={l.photoUri} /> : null}
+                  {l.audioDurationMs != null && (
+                    <Text style={styles.bubbleChip}>
+                      🎤 Sprachnotiz · {Math.round(l.audioDurationMs / 1000)}s
+                    </Text>
+                  )}
+                  {l.text ? <Text style={styles.cardText}>{l.text}</Text> : null}
+                </View>
+              ) : (
+                <Text key={l.key} style={styles.logLine}>
+                  {l.text}
+                </Text>
+              )
+            )}
           </View>
         )}
       </ScrollView>
@@ -393,12 +418,15 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
         <View style={styles.attachRow}>
           {photo && (
             <Pressable onPress={() => setPhoto(null)}>
-              <Text style={styles.chip}>📷 Foto ✕</Text>
+              <Image source={{ uri: photo.uri }} style={styles.thumb} resizeMode="cover" />
+              <Text style={styles.thumbRemove}>✕</Text>
             </Pressable>
           )}
           {audio && (
             <Pressable onPress={() => setAudio(null)}>
-              <Text style={styles.chip}>🎤 Sprachnotiz ✕</Text>
+              <Text style={styles.chip}>
+                🎤 {Math.round((audio.durationMs ?? 0) / 1000)}s ✕
+              </Text>
             </Pressable>
           )}
         </View>
@@ -519,6 +547,33 @@ const styles = StyleSheet.create({
   },
   confirmText: { color: "#fff", fontWeight: "700" },
   logLine: { color: colors.dim, fontSize: 12, fontFamily: "monospace", marginTop: 2 },
+  userBubble: {
+    alignSelf: "flex-end",
+    maxWidth: "82%",
+    backgroundColor: "#1f4652",
+    borderRadius: 12,
+    borderBottomRightRadius: 2,
+    padding: 8,
+    marginTop: 6,
+    gap: 6,
+  },
+  bubblePhoto: { width: 200, height: 150, borderRadius: 8 },
+  bubbleChip: { color: colors.accent, fontSize: 13 },
+  thumb: { width: 64, height: 64, borderRadius: 6 },
+  thumbRemove: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    color: "#fff",
+    backgroundColor: colors.danger,
+    borderRadius: 9,
+    width: 18,
+    height: 18,
+    textAlign: "center",
+    fontSize: 12,
+    lineHeight: 17,
+    overflow: "hidden",
+  },
   toast: { color: colors.warn, paddingHorizontal: 16, paddingBottom: 4, fontSize: 13 },
   pendingBar: {
     flexDirection: "row",

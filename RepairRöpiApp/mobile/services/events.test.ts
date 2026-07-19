@@ -46,18 +46,37 @@ test("guidance upserts by step_index, keeps order", () => {
 
 test("user entries interleave before the agent turn that answers them", () => {
   let v = emptyView();
-  const e1 = userEntry(v, "Maschine rattert", 1); // lastTurnIndex 0 → sortKey 500
+  const e1 = userEntry(v, "Maschine rattert", {}, 1); // lastTurnIndex 0 → sortKey 500
   v = applyUserEntries(v, [e1]);
   v = applyEvent(v, "tool_call", { tool: "error_code_lookup", args: {} }, "1.0");
   v = applyEvent(v, "done", { status: "awaiting_user_input" }, "1.1");
-  const e2 = userEntry(v, "0.5mm Spiel", 2); // lastTurnIndex 1 → sortKey 1500
+  const e2 = userEntry(v, "0.5mm Spiel", {}, 2); // lastTurnIndex 1 → sortKey 1500
   v = applyUserEntries(v, [e2]);
   v = applyEvent(v, "tool_result", { tool: "x", result_summary: "ok" }, "3.0");
   assert.deepEqual(
-    v.log.map((l) => l.text),
-    ["👤 Maschine rattert", "🔧 error_code_lookup", "👤 0.5mm Spiel", "✅ x: ok"]
+    v.log.map((l) => [l.kind, l.text]),
+    [
+      ["user", "Maschine rattert"],
+      ["agent", "🔧 error_code_lookup"],
+      ["user", "0.5mm Spiel"],
+      ["agent", "✅ x: ok"],
+    ]
   );
   // restore path is idempotent
   const restored = applyUserEntries(v, [e1, e2]);
   assert.equal(restored.log.length, v.log.length);
+});
+
+test("user entry carries inline media into the log (2.9)", () => {
+  let v = emptyView();
+  const e = userEntry(v, "", { photoUri: "file:///cache/p.jpg", audioDurationMs: 12300 }, 1);
+  v = applyUserEntries(v, [e]);
+  assert.equal(v.log.length, 1);
+  assert.equal(v.log[0].kind, "user");
+  assert.equal(v.log[0].photoUri, "file:///cache/p.jpg");
+  assert.equal(v.log[0].audioDurationMs, 12300);
+  // pre-2.9 stored entries (no media fields) still restore
+  const old = { text: "alt", sortKey: 500, key: "user-old" };
+  const v2 = applyUserEntries(v, [old]);
+  assert.equal(v2.log.some((l) => l.key === "user-old" && l.kind === "user"), true);
 });
