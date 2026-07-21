@@ -44,6 +44,7 @@ def _canonical_family(family: str | None) -> str | None:
     key = re.sub(r"[\s\-_]+", "_", family.strip()).upper()
     return FAMILY_ALIASES.get(key, family)
 
+
 _LOOKUP_SQL = """
     SELECT controller_family, code, category, severity, message_de, message_en,
            probable_causes, recommended_actions, related_components,

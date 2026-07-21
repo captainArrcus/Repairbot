@@ -61,6 +61,4 @@ def transcribe_media(
         raise HTTPException(404, "media not found") from exc
     except Exception as exc:  # ffmpeg/model failure — app degrades to 2.4 inline STT
         raise HTTPException(502, "Transkription fehlgeschlagen") from exc
-    return TranscribeResponse(
-        transcript=result["transcript"], confidence=result["confidence"]
-    )
+    return TranscribeResponse(transcript=result["transcript"], confidence=result["confidence"])
