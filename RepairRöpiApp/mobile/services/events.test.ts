@@ -67,6 +67,32 @@ test("user entries interleave before the agent turn that answers them", () => {
   assert.equal(restored.log.length, v.log.length);
 });
 
+test("thinking lands in the conversation log as a bubble entry (2.11)", () => {
+  let v = emptyView();
+  v = applyEvent(v, "thinking", { content: "Prüfe Fehlercode AL 309 …" }, "1.0");
+  v = applyEvent(v, "tool_call", { tool: "error_code_lookup", args: {} }, "1.1");
+  v = applyEvent(v, "thinking", { content: "Treffer — bilde Hypothesen." }, "1.2");
+  v = applyEvent(v, "done", { status: "awaiting_user_input" }, "1.3");
+  assert.deepEqual(
+    v.log.map((l) => [l.kind, l.text]),
+    [
+      ["thinking", "Prüfe Fehlercode AL 309 …"],
+      ["agent", "🔧 error_code_lookup"],
+      ["thinking", "Treffer — bilde Hypothesen."],
+    ]
+  );
+  // status row still tracks the latest thinking, done clears it, log keeps it
+  assert.equal(v.thinking, "");
+  assert.equal(v.log.filter((l) => l.kind === "thinking").length, 2);
+  // empty thinking (worker-error fallback clears) never becomes a bubble
+  const before = v.log.length;
+  v = applyEvent(v, "thinking", { content: "" }, "3.0");
+  assert.equal(v.log.length, before);
+  // replay stays idempotent
+  const replayed = applyEvent(v, "thinking", { content: "Prüfe Fehlercode AL 309 …" }, "1.0");
+  assert.equal(replayed.log.length, v.log.length);
+});
+
 test("user entry carries inline media into the log (2.9)", () => {
   let v = emptyView();
   const e = userEntry(v, "", { photoUri: "file:///cache/p.jpg", audioDurationMs: 12300 }, 1);

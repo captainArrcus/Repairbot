@@ -2,7 +2,7 @@ Goal: deliver an MVP that proves the mission thesis (multimodal, iterative diagn
 
 > **Architecture change (Juli 2026, Techstack v3):** the agent backbone is now an **embedded hermes-agent** (`run_agent.AIAgent` from NousResearch/hermes-agent, pinned commit) instead of smolagents. Consequences for this roadmap: Feature 0.2 becomes the hermes embed spike; Feature 2.5 loses the CodeAgent Docker sandbox (tool-calling only — containment is tool allowlist + egress isolation); new Feature 2.7 adds the Learning Pipeline (trajectories, skills, memory → cloud curation); all sessions become tenant-scoped (central multi-tenant cloud).
 >
-> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field); 2.9 and 2.10 are BUILT and dev-verified (on-phone checks = field runbook; 2.10 live-verified against the real STT pipeline). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
+> **Status:** Features 0.0, 0.1, 0.2, 1.0, 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 2.5 and 2.7 are COMPLETE (1.4 field-tested on phone 2026-07-19 — full flow works). Feature 2.6 (mobile app) is BUILT and dev-verified — React Native + Expo locked; Expo Go phone run + APK build are the remaining field steps (see spec). First app field test (2026-07-19) produced Feedback round 1 → Features 2.9–2.11 (chat view, transcript echo, hermes-in-the-field); 2.9, 2.10 and 2.11 are BUILT and dev-verified (2.10 live-verified against the real STT pipeline; 2.11 live-verified with a 2-turn hermes session through the flipped default). One on-phone field run covers the 2.9/2.10/2.11 runbook items together (see 2.11 spec FINDINGS). Knowledge-layer winner: **hybrid** (exact error-code lookup fast-path + LLM over narrowed candidates) — see `Repair_Logic_Agent/knowledge_spike/FINDINGS.md`. Hermes embed spike: **GO** — all four questions pass; tool allowlist must include hermes' learning tools (`skills_*`, `memory`) — see `specs/2026-07-12_0242_feature_0.2_hermes_embed/FINDINGS.md`. Project skeleton + dev infra (Postgres 16, MinIO, Langfuse v3, CI): see `specs/2026-07-12_1518_feature_1.0_project_skeleton/FINDINGS.md`.
 
 Quick conventions used below
 
@@ -506,21 +506,31 @@ Feature 2.10 — Voice transcript echo before send (owner: BE + FE) — 12h — 
         echo-and-edit run = field runbook item.
     Spec + acceptance evidence: specs/2026-07-20_0123_feature_2.10_transcript_echo/
 
-Feature 2.11 — Hermes agent in the field (owner: ML + FE) — 16h — depends on 2.9
+Feature 2.11 — Hermes agent in the field (owner: ML + FE) — 16h — depends on 2.9 — **[BUILT 2026-07-20, dev-verified live; on-phone hermes run = field runbook, spec FINDINGS]**
 
     Objective: the interactive thinking/planning agent built in 2.5 actually reaches the phone —
     every field test so far exercised the scripted mock.
-    Steps:
-        Dev/field environment defaults to AGENT_BACKEND=hermes (scripted stays the CI/golden
-        default, 2.5 D7); document the switch in the field-test runbook.
-        Verify thinking / tool_call / tool_result events render legibly in the 2.9
-        conversation view (streamed thinking as an agent bubble, tool calls as compact
-        status rows — the raw stream exists since 2.5, the app must show it).
+    Steps (as built):
+        Dev/field environment defaults to AGENT_BACKEND=hermes via .env (code default stays
+        scripted = CI/golden, 2.5 D7); NEW tests/conftest.py pins the pytest suite to
+        scripted regardless of .env (spec D2 — load_dotenv would otherwise flip local
+        tests silently). Switch + fallback documented in the field runbook (spec FINDINGS).
+        thinking / tool_call / tool_result render in the 2.9 conversation view:
+        LogEntry.kind gained "thinking" — non-empty thinking events become left-aligned
+        agent bubbles in the log (wire-id keyed, replay-idempotent) while still driving
+        the transient status row; tool calls stay the compact 🔧/✅ rows (spec D3/D4).
         On-phone field run: panel photo → visible thinking → hypotheses → discriminating
-        question → answer → diagnosis.
+        question → answer → diagnosis. (Remaining acceptance step.)
     Acceptance:
         On-phone session against AGENT_BACKEND=hermes shows visible thinking/planning and at
         least one discriminating question; feedback item (d) "where is the agent?" closed.
+        Status: dev-verified — live 2-turn AL-309 session through the flipped default
+        (lookup exact hit → thinking → 3 hypotheses → axial-play question → answer →
+        elimination → diagnosis 0.95 → guidance), real SSE replay fed through the real
+        app reducer shows thinking bubbles + tool rows; app tests 7/7, tsc clean,
+        backend suite 73 passed with .env flipped. Known: agent answers in English to
+        German input (2.5 finding #5, gated by the 3.2 harness — not a 2.11 change).
+    Spec + acceptance evidence: specs/2026-07-20_0147_feature_2.11_hermes_in_field/
 
 PHASE 3 — Field Deployment (Weeks 9–12)
 Goal: cloud deploy, pilots, metric capture.
@@ -552,7 +562,13 @@ Feature 3.2 — Golden test harness & CI gating (owner: QA + ML) — 16h
         executes the agent pipeline in CI using a deterministic model mock or small local model and the seeded docs
         asserts top-1 accuracy (primary metric per 0.1 finding; top-3 recall only after
         taxonomy alignment) and that agent asks at least one clarifying question for each case
-        checks prompt-language discipline (German user text → German agent output; 2.5 finding #5)
+        checks prompt-language discipline (German user text → German agent output; 2.5
+        finding #5 — CONFIRMED LIVE in 2.11: gemini answered a German AL-309 report with
+        English thinking/hypotheses/question; fix belongs in the worker prompt, this
+        check gates it)
+    Also here (2.11 finding #3): resolve the ruff format drift — local ruff flags
+        app/api/media.py + app/tools/error_code_lookup.py (committed in 2.10/2.8) that CI
+        passed; pin the ruff version in pyproject so local and CI agree, then format.
     Hook into GitHub Actions to run on PRs, fail on regressions
     Acceptance: CI passes on baseline; PRs must run harness
 

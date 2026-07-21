@@ -29,11 +29,13 @@ export type Diagnosis = {
 
 // Feature 2.9 — the log IS the conversation: user entries render as chat
 // bubbles (right, with inline media), agent entries as compact status lines.
+// Feature 2.11 — "thinking" entries are the agent's streamed reasoning,
+// rendered as left-aligned agent bubbles.
 export type LogEntry = {
   key: string;
   sortKey: number;
   text: string;
-  kind: "user" | "agent";
+  kind: "user" | "agent" | "thinking";
   photoUri?: string | null;
   audioDurationMs?: number | null;
 };
@@ -115,8 +117,12 @@ export function applyEvent(
   const key = wireId ?? `${type}-${sortKey}`;
 
   switch (type) {
-    case "thinking":
-      return { ...next, thinking: data.content ?? "", busy: true };
+    case "thinking": {
+      // 2.11: thinking is part of the conversation, not just the status row
+      const t = { ...next, thinking: data.content ?? "", busy: true };
+      if (!data.content) return t;
+      return withLog(t, { key, sortKey, text: data.content, kind: "thinking" });
+    }
     case "hypothesis": {
       const h: Hypothesis = {
         hypothesis_id: data.hypothesis_id,

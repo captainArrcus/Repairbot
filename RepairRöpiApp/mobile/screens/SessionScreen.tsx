@@ -415,6 +415,11 @@ export default function SessionScreen({ sessionId, onBack }: Props) {
                   )}
                   {l.text ? <Text style={styles.cardText}>{l.text}</Text> : null}
                 </View>
+              ) : l.kind === "thinking" ? (
+                // 2.11: streamed agent reasoning as a left-aligned bubble
+                <View key={l.key} style={styles.agentBubble}>
+                  <Text style={styles.thinkingText}>🤔 {l.text}</Text>
+                </View>
               ) : (
                 <Text key={l.key} style={styles.logLine}>
                   {l.text}
@@ -602,6 +607,16 @@ const styles = StyleSheet.create({
     marginTop: 6,
     gap: 6,
   },
+  agentBubble: {
+    alignSelf: "flex-start",
+    maxWidth: "82%",
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderBottomLeftRadius: 2,
+    padding: 8,
+    marginTop: 6,
+  },
+  thinkingText: { color: colors.dim, fontSize: 14, lineHeight: 20, fontStyle: "italic" },
   bubblePhoto: { width: 200, height: 150, borderRadius: 8 },
   bubbleChip: { color: colors.accent, fontSize: 13 },
   thumb: { width: 64, height: 64, borderRadius: 6 },
